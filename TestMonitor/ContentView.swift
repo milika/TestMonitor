@@ -32,7 +32,7 @@ struct ContentView: View {
   private var emptyState: some View {
     VStack(spacing: 12) {
       Image(systemName: "checkmark.circle")
-        .font(.system(size: 36))
+        .font(.system(size: 44))
         .foregroundStyle(.secondary)
       Text("No active test runs")
         .foregroundStyle(.secondary)
@@ -76,7 +76,7 @@ struct SuiteProgressView: View {
         NSWorkspace.shared.open(URL(fileURLWithPath: state.logPath))
       } label: {
         Image(systemName: "doc.text.magnifyingglass")
-          .font(.caption)
+          .font(.body)
           .foregroundStyle(.secondary)
       }
       .buttonStyle(.plain)
@@ -86,7 +86,7 @@ struct SuiteProgressView: View {
           NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: xcresult)])
         } label: {
           Image(systemName: "folder.badge.gearshape")
-            .font(.caption)
+            .font(.body)
             .foregroundStyle(.secondary)
         }
         .buttonStyle(.plain)
@@ -96,7 +96,7 @@ struct SuiteProgressView: View {
         state.isDismissed = true
       } label: {
         Image(systemName: "xmark")
-          .font(.system(size: 8, weight: .bold))
+          .font(.system(size: 10, weight: .bold))
           .foregroundStyle(.white)
           .padding(4)
           .background(Color.red.opacity(0.75), in: Circle())
@@ -111,26 +111,26 @@ struct SuiteProgressView: View {
     if let start = state.startTime {
       HStack(spacing: 4) {
         Image(systemName: "clock")
-          .font(.caption2)
+          .font(.caption)
           .foregroundStyle(.secondary)
           .tooltip("Run start time")
         Text("Started \(timeString(start))")
-          .font(.caption)
+          .font(.footnote)
           .foregroundStyle(.secondary)
         if let end = state.endTime {
           Text("·")
             .foregroundStyle(.tertiary)
           Text("Ended \(timeString(end))")
-            .font(.caption)
+            .font(.footnote)
             .foregroundStyle(.secondary)
           Text("·")
             .foregroundStyle(.tertiary)
           Text(formatDuration(end.timeIntervalSince(start)))
-            .font(.caption.bold())
+            .font(.footnote.bold())
             .foregroundStyle(.secondary)
         } else {
           Text("· running…")
-            .font(.caption)
+            .font(.footnote)
             .foregroundStyle(.tertiary)
         }
       }
@@ -143,7 +143,7 @@ struct SuiteProgressView: View {
         .progressViewStyle(.linear)
       HStack {
         Text("\(state.completed) / \(state.totalKnown)  (\(Int(state.progressFraction * 100))%)")
-          .font(.caption)
+          .font(.footnote)
           .foregroundStyle(.secondary)
         Spacer()
         HStack(spacing: 10) {
@@ -168,14 +168,14 @@ struct WorkerBarsView: View {
         let perWorkerTotal = max(state.totalKnown / state.workerCount, 1)
         HStack(spacing: 8) {
           Text("Worker \(index)")
-            .font(.caption)
-            .frame(width: 58, alignment: .leading)
+            .font(.footnote)
+            .frame(width: 64, alignment: .leading)
           ProgressView(value: Double(count), total: Double(perWorkerTotal))
             .progressViewStyle(.linear)
           Text("\(count)")
-            .font(.caption)
+            .font(.footnote)
             .foregroundStyle(.secondary)
-            .frame(width: 28, alignment: .trailing)
+            .frame(width: 32, alignment: .trailing)
         }
       }
     }
@@ -195,7 +195,7 @@ struct RecentResultsView: View {
     if recent.isEmpty { EmptyView() } else {
       VStack(alignment: .leading, spacing: 2) {
         Text("Recent:")
-          .font(.caption)
+          .font(.footnote)
           .foregroundStyle(.secondary)
           .padding(.top, 4)
         ScrollViewReader { proxy in
@@ -205,21 +205,21 @@ struct RecentResultsView: View {
                 HStack(spacing: 6) {
                   Image(systemName: result.status.icon)
                     .foregroundStyle(result.status.color)
-                    .frame(width: 12)
+                    .frame(width: 14)
                     .tooltip(result.status.label)
                   Text("\(result.suite).\(result.name)")
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(.system(size: 12, design: .monospaced))
                     .lineLimit(1)
                   Spacer()
                   Text(String(format: "%.1fs", result.duration))
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
                 }
                 .id(result.id)
               }
             }
           }
-          .frame(maxHeight: 160)
+          .frame(maxHeight: 180)
           .onChange(of: recent.last?.id) { _, newID in
             if let id = newID {
               withAnimation { proxy.scrollTo(id, anchor: .bottom) }
@@ -264,7 +264,7 @@ struct StatusCount: View {
   var body: some View {
     Label("\(count)", systemImage: icon)
       .foregroundStyle(color)
-      .font(.caption)
+      .font(.footnote)
       .tooltip("\(count) \(hint.lowercased())")
   }
 }

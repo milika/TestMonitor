@@ -13,12 +13,15 @@ struct MenuBarLabel: View {
     } else if let failed = visible.first(where: { $0.verdict == .failed }) {
       let _ = failed  // suppress unused warning
       Image(systemName: "xmark.circle.fill")
+        .font(.system(size: 16))
         .foregroundStyle(Color.red)
     } else if visible.contains(where: { $0.verdict == .succeeded }) {
       Image(systemName: "checkmark.circle.fill")
+        .font(.system(size: 16))
         .foregroundStyle(Color.green)
     } else {
       Image(systemName: "checkmark.circle.fill")
+        .font(.system(size: 16))
         .foregroundStyle(Color.secondary)
     }
   }
@@ -30,14 +33,14 @@ struct RunningMenuBarLabel: View {
   var body: some View {
     HStack(spacing: 3) {
       ProgressView()
-        .scaleEffect(0.5)
-        .frame(width: 14, height: 14)
+        .scaleEffect(0.7)
+        .frame(width: 18, height: 18)
       if let eta = state.eta {
         Text("\(shortSuiteName): \(state.completed)/\(state.totalKnown) · \(formatETA(eta))")
-          .font(.system(size: 11))
+          .font(.system(size: 13))
       } else {
         Text("\(shortSuiteName): \(state.completed)/\(state.totalKnown)")
-          .font(.system(size: 11))
+          .font(.system(size: 13))
       }
     }
   }
@@ -58,13 +61,14 @@ struct MenuBarView: View {
   private var visible: [TestRunState] { suites.filter { !$0.isDismissed } }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
+    VStack(alignment: .leading, spacing: 8) {
       if visible.isEmpty {
         HStack(spacing: 8) {
           Image(systemName: "checkmark.circle.fill")
+            .font(.body)
             .foregroundStyle(.green)
           Text("All clear — no active test runs")
-            .font(.caption)
+            .font(.body)
             .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -84,7 +88,7 @@ struct MenuBarView: View {
         NSApp.activate(ignoringOtherApps: true)
       }
       .buttonStyle(.plain)
-      .font(.caption)
+      .font(.body)
       Divider()
       ShellWrapperToggleRow(manager: shellWrapper)
       Divider()
@@ -92,14 +96,14 @@ struct MenuBarView: View {
         NSWorkspace.shared.open(URL(string: "https://github.com/milika/TestMonitor")!)
       }
       .buttonStyle(.plain)
-      .font(.caption)
+      .font(.body)
       Divider()
       Button("Quit") { NSApp.terminate(nil) }
         .buttonStyle(.plain)
-        .font(.caption)
+        .font(.body)
     }
-    .padding(12)
-    .frame(width: 300)
+    .padding(16)
+    .frame(width: 360)
   }
 }
 
@@ -109,23 +113,23 @@ struct CompactSuiteRow: View {
   var state: TestRunState
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 3) {
-      HStack(spacing: 5) {
+    VStack(alignment: .leading, spacing: 5) {
+      HStack(spacing: 6) {
         Circle()
           .fill(indicatorColor)
-          .frame(width: 8, height: 8)
+          .frame(width: 12, height: 12)
           .tooltip(indicatorHint)
         Text(state.suiteName)
-          .font(.caption.bold())
+          .font(.subheadline.bold())
         Spacer()
         if state.isRunning, let eta = state.eta {
           Text(formatETA(eta))
-            .font(.caption2)
+            .font(.footnote)
             .foregroundStyle(.secondary)
         } else if let verdict = state.verdict {
           Image(systemName: verdict == .succeeded ? "checkmark" : "xmark")
             .foregroundStyle(verdict == .succeeded ? Color.green : Color.red)
-            .font(.caption2)
+            .font(.footnote)
             .tooltip(verdict == .succeeded ? "All tests passed" : "One or more tests failed")
         }
         if !state.isRunning {
@@ -133,7 +137,7 @@ struct CompactSuiteRow: View {
             state.isDismissed = true
           } label: {
             Image(systemName: "xmark")
-              .font(.system(size: 7, weight: .bold))
+              .font(.system(size: 9, weight: .bold))
               .foregroundStyle(.white)
               .padding(3)
               .background(Color.red.opacity(0.75), in: Circle())
@@ -145,18 +149,18 @@ struct CompactSuiteRow: View {
       if let start = state.startTime {
         HStack(spacing: 3) {
           Text(timeString(start))
-            .font(.caption2)
+            .font(.footnote)
             .foregroundStyle(.secondary)
           if let end = state.endTime {
             Text("→ \(timeString(end))")
-              .font(.caption2)
+              .font(.footnote)
               .foregroundStyle(.secondary)
             Text("(\(formatDuration(end.timeIntervalSince(start))))")
-              .font(.caption2)
+              .font(.footnote)
               .foregroundStyle(.tertiary)
           } else {
             Text("→ running…")
-              .font(.caption2)
+              .font(.footnote)
               .foregroundStyle(.tertiary)
           }
         }
@@ -166,11 +170,11 @@ struct CompactSuiteRow: View {
           .progressViewStyle(.linear)
         HStack {
           Text("\(state.completed)/\(state.totalKnown)")
-            .font(.caption2)
+            .font(.footnote)
             .foregroundStyle(.secondary)
           Spacer()
           Text("✓ \(state.passed)  ✗ \(state.failed)")
-            .font(.caption2)
+            .font(.footnote)
             .foregroundStyle(.secondary)
         }
       }
@@ -205,9 +209,9 @@ struct ShellWrapperToggleRow: View {
     HStack(spacing: 6) {
       Circle()
         .fill(manager.isInstalled ? Color.green : Color.secondary.opacity(0.4))
-        .frame(width: 7, height: 7)
+        .frame(width: 11, height: 11)
       Text(manager.isInstalled ? "Shell wrapper active" : "Shell wrapper inactive")
-        .font(.caption)
+        .font(.body)
         .foregroundStyle(manager.isInstalled ? .primary : .secondary)
       Spacer()
       Button(manager.isInstalled ? "Remove" : "Install") {
@@ -218,7 +222,7 @@ struct ShellWrapperToggleRow: View {
         }
       }
       .buttonStyle(.plain)
-      .font(.caption)
+      .font(.body)
       .foregroundStyle(manager.isInstalled ? .red : .accentColor)
     }
     .tooltip(manager.isInstalled
@@ -226,7 +230,7 @@ struct ShellWrapperToggleRow: View {
       : "Install a ~/.zshrc wrapper so xcodebuild test output is captured automatically")
     if let err = manager.lastError {
       Text("⚠ \(err)")
-        .font(.caption2)
+        .font(.caption)
         .foregroundStyle(.red)
     }
   }
