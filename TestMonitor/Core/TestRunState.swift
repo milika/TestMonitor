@@ -101,10 +101,15 @@ final class TestRunState: Identifiable {
       xcresultWatcher = watcher
       watcher.start()
     }
-    // Always also watch the main log file (unit tests / xcodebuild stdout)
-    let watcher = LogWatcher(path: logPath) { [weak self] chunk in
-      DispatchQueue.main.async { self?.ingest(chunk: chunk, workerIndex: 0) }
-    }
+
+    // When xcresultLogsDir is set, the XCResultWatcher handles all test result
+    // parsing. The LogWatcher is kept only to detect run restarts (truncation).
+    // When xcresultLogsDir is nil (unit tests), the log IS the sole data source.
+    let onChunk: (String) -> Void = xcresultLogsDir == nil
+      ? { [weak self] chunk in DispatchQueue.main.async { self?.ingest(chunk: chunk, workerIndex: 0) } }
+      : { _ in }
+
+    let watcher = LogWatcher(path: logPath, onNewContent: onChunk)
     watcher.onTruncated = { [weak self] in
       self?.reset()
     }
