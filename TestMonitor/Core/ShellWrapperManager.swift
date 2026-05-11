@@ -1,61 +1,76 @@
 import Foundation
 import Observation
 
-/// Manages installation of the transparent `xcodebuild` shell wrapper in ~/.zshrc.
-/// The wrapper auto-tees `xcodebuild test` output to the log files TestMonitor watches.
+/// Manages a transparent `xcodebuild` binary shim installed at a PATH-priority
+/// location (/opt/homebrew/bin on Apple Silicon, /usr/local/bin on Intel).
+///
+/// Because the shim is a real executable — not a shell function — it intercepts
+/// every `xcodebuild test` call in any terminal, script, or CI job without
+/// requiring `source ~/.zshrc` or any per-session setup.
 @Observable
 final class ShellWrapperManager {
 
-  // The exact block written to / searched for in ~/.zshrc
-  private static let beginMarker = "# >>> TestMonitor xcodebuild wrapper <<<"
-  private static let endMarker   = "# <<< TestMonitor xcodebuild wrapper >>>"
+  // Marker embedded in the shim so we can distinguish our file from anything else.
+  private static let shimMarker = "# TestMonitor xcodebuild shim"
 
-  private static let wrapperBlock = """
-  # >>> TestMonitor xcodebuild wrapper <<<
-  # Auto-tees `xcodebuild test` output so TestMonitor picks up live results.
+  private static let shimScript = """
+  #!/bin/bash
+  # TestMonitor xcodebuild shim
+  # Transparently tees `xcodebuild test` output to the log files TestMonitor watches.
   # Remove by choosing "Remove Shell Wrapper" from the TestMonitor menu bar.
-  xcodebuild() {
-    if [[ " $* " != *" test "* ]]; then
-      command xcodebuild "$@"
-      return
-    fi
-    local logfile
-    if [[ " $* " == *"SmartTubeTests"* ]] || [[ " $* " == *"-parallel-testing-enabled NO"* ]]; then
-      logfile="/tmp/smarttube-unit-tests.log"
-    else
-      logfile="/tmp/smarttube-parallel-test.log"
-    fi
-    > "$logfile"
-    echo "  [TestMonitor] → $logfile"
-    command xcodebuild "$@" 2>&1 | tee -a "$logfile"
-  }
-  # <<< TestMonitor xcodebuild wrapper >>>
+
+  REAL_XCODEBUILD="$(xcrun --find xcodebuild 2>/dev/null || echo /usr/bin/xcodebuild)"
+
+  # Pass non-test invocations straight through.
+  if [[ " $* " != *" test "* ]]; then
+    exec "$REAL_XCODEBUILD" "$@"
+  fi
+
+  # Route to the appropriate log based on scheme / flags.
+  if [[ " $* " == *"SmartTubeTests"* ]] || [[ " $* " == *"-parallel-testing-enabled NO"* ]]; then
+    logfile="/tmp/smarttube-unit-tests.log"
+  else
+    logfile="/tmp/smarttube-parallel-test.log"
+  fi
+
+  : > "$logfile"
+  echo "  [TestMonitor] → $logfile" >&2
+  exec "$REAL_XCODEBUILD" "$@" 2>&1 | tee -a "$logfile"
   """
 
   private(set) var isInstalled: Bool = false
   private(set) var lastError: String?
 
-  private let zshrcPath: String
-
-  init() {
-    zshrcPath = (("~/.zshrc" as NSString).expandingTildeInPath)
-    refresh()
+  /// Directory where the shim is placed. Chosen to appear before /usr/bin in PATH.
+  private static var shimDir: String {
+    var sysinfo = utsname()
+    uname(&sysinfo)
+    let machine = withUnsafeBytes(of: &sysinfo.machine) { bytes in
+      String(bytes: bytes.prefix(while: { $0 != 0 }), encoding: .utf8) ?? ""
+    }
+    return machine == "arm64" ? "/opt/homebrew/bin" : "/usr/local/bin"
   }
 
-  /// Re-read disk state (call after install/remove, or on app launch).
+  private static var shimPath: String { "\(shimDir)/xcodebuild" }
+
+  init() { refresh() }
+
   func refresh() {
-    let content = (try? String(contentsOfFile: zshrcPath, encoding: .utf8)) ?? ""
-    isInstalled = content.contains(Self.beginMarker)
+    let content = (try? String(contentsOfFile: Self.shimPath, encoding: .utf8)) ?? ""
+    isInstalled = content.contains(Self.shimMarker)
     lastError = nil
   }
 
   func install() {
     guard !isInstalled else { return }
+    // Remove any stale ~/.zshrc wrapper left from the old approach.
+    removeZshrcWrapper()
     do {
-      var content = (try? String(contentsOfFile: zshrcPath, encoding: .utf8)) ?? ""
-      if !content.hasSuffix("\n") { content += "\n" }
-      content += "\n" + Self.wrapperBlock + "\n"
-      try content.write(toFile: zshrcPath, atomically: true, encoding: .utf8)
+      try Self.shimScript.write(toFile: Self.shimPath, atomically: true, encoding: .utf8)
+      try FileManager.default.setAttributes(
+        [.posixPermissions: 0o755],
+        ofItemAtPath: Self.shimPath
+      )
       isInstalled = true
       lastError = nil
     } catch {
@@ -66,24 +81,30 @@ final class ShellWrapperManager {
   func remove() {
     guard isInstalled else { return }
     do {
-      var content = try String(contentsOfFile: zshrcPath, encoding: .utf8)
-      // Remove every line between (and including) the begin/end markers
-      let lines = content.components(separatedBy: "\n")
-      var result: [String] = []
-      var inside = false
-      for line in lines {
-        if line.hasPrefix(Self.beginMarker) { inside = true }
-        if !inside { result.append(line) }
-        if line.hasPrefix(Self.endMarker) { inside = false }
-      }
-      // Collapse multiple blank lines that may be left behind
-      content = result.joined(separator: "\n")
-        .replacingOccurrences(of: "\n\n\n", with: "\n\n")
-      try content.write(toFile: zshrcPath, atomically: true, encoding: .utf8)
+      try FileManager.default.removeItem(atPath: Self.shimPath)
       isInstalled = false
       lastError = nil
     } catch {
       lastError = error.localizedDescription
     }
+  }
+
+  // MARK: - Migration: clean up the old ~/.zshrc function if present
+
+  private func removeZshrcWrapper() {
+    let zshrcPath = ("~/.zshrc" as NSString).expandingTildeInPath
+    guard var content = try? String(contentsOfFile: zshrcPath, encoding: .utf8),
+          content.contains("# >>> TestMonitor xcodebuild wrapper <<<") else { return }
+    let lines = content.components(separatedBy: "\n")
+    var result: [String] = []
+    var inside = false
+    for line in lines {
+      if line.hasPrefix("# >>> TestMonitor xcodebuild wrapper <<<") { inside = true }
+      if !inside { result.append(line) }
+      if line.hasPrefix("# <<< TestMonitor xcodebuild wrapper >>>") { inside = false }
+    }
+    content = result.joined(separator: "\n")
+      .replacingOccurrences(of: "\n\n\n", with: "\n\n")
+    try? content.write(toFile: zshrcPath, atomically: true, encoding: .utf8)
   }
 }

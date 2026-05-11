@@ -37,8 +37,8 @@ When all suites are dismissed the menu bar popover shows "All clear — no activ
 - **Open TestMonitor** button in the popover brings the window to front
 
 ### Shell Wrapper
-- **Install / Remove** a transparent `xcodebuild` shell wrapper directly from the menu bar popover
-- The wrapper patches `~/.zshrc` to auto-`tee` `xcodebuild test` output to the watched log files — no manual piping needed after a one-time install
+- **Install / Remove** a transparent `xcodebuild` binary shim directly from the menu bar popover
+- The shim is placed at `/opt/homebrew/bin/xcodebuild` (Apple Silicon) or `/usr/local/bin/xcodebuild` (Intel) — both appear before `/usr/bin` in PATH — so **any terminal, script, or CI job picks it up automatically** without sourcing anything
 - Status indicator (green / grey dot) shows whether the wrapper is currently active
 
 ### Developer Utility
@@ -90,15 +90,15 @@ For plain log files, TestMonitor uses `LogWatcher` (`DispatchSource.makeFileSyst
 
 ### Shell wrapper (optional)
 
-Instead of manually piping to `tee`, install the shell wrapper once. It wraps the `xcodebuild` command in `~/.zshrc`:
+Instead of manually piping to `tee`, install the binary shim once from the menu bar. It places a real `xcodebuild` executable at a PATH-priority location:
 
 ```bash
-# After installing the wrapper, just run xcodebuild normally:
+# After installing the shim, just run xcodebuild normally — in any terminal:
 xcodebuild test -scheme SmartTubeTests …
 # TestMonitor automatically receives the output via tee
 ```
 
-To install without the app: add this to `~/.zshrc` manually and point the log paths at what TestMonitor watches.
+Because it's a real binary (not a shell function), it works in every terminal session, shell script, and CI job without `source ~/.zshrc`. To install without the app, copy the shim script to `/opt/homebrew/bin/xcodebuild` (Apple Silicon) or `/usr/local/bin/xcodebuild` (Intel) and `chmod +x` it.
 
 ### Parsed log patterns
 
