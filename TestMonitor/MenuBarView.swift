@@ -83,6 +83,12 @@ struct MenuBarView: View {
       Divider()
       ShellWrapperToggleRow(manager: shellWrapper)
       Divider()
+      Button("Open on GitHub") {
+        NSWorkspace.shared.open(URL(string: "https://github.com/milika/TestMonitor")!)
+      }
+      .buttonStyle(.plain)
+      .font(.caption)
+      Divider()
       Button("Quit") { NSApp.terminate(nil) }
         .buttonStyle(.plain)
         .font(.caption)
