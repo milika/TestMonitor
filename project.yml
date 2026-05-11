@@ -1,0 +1,30 @@
+name: TestMonitor
+
+options:
+  bundleIdPrefix: com.testmonitor
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "15.4"
+  generateEmptyDirectories: true
+  createIntermediateGroups: true
+
+targets:
+  TestMonitor:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: TestMonitor
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.testmonitor.TestMonitor
+        SWIFT_VERSION: "5.9"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: YES
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_LSUIElement: NO
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        INFOPLIST_KEY_CFBundleDisplayName: TestMonitor
+        INFOPLIST_KEY_CFBundleShortVersionString: "1.0"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
