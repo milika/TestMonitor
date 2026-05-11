@@ -75,7 +75,12 @@ struct MenuBarView: View {
       }
       Divider()
       Button("Open TestMonitor") {
-        openWindow(id: "main")
+        // Bring existing main window to front rather than opening a duplicate.
+        if let existing = NSApp.windows.first(where: { $0.styleMask.contains(.titled) && !($0 is NSPanel) }) {
+          existing.makeKeyAndOrderFront(nil)
+        } else {
+          openWindow(id: "main")
+        }
         NSApp.activate(ignoringOtherApps: true)
       }
       .buttonStyle(.plain)
@@ -128,8 +133,10 @@ struct CompactSuiteRow: View {
             state.isDismissed = true
           } label: {
             Image(systemName: "xmark")
-              .font(.caption2)
-              .foregroundStyle(.secondary)
+              .font(.system(size: 7, weight: .bold))
+              .foregroundStyle(.white)
+              .padding(3)
+              .background(Color.red.opacity(0.75), in: Circle())
           }
           .buttonStyle(.plain)
           .tooltip("Dismiss")

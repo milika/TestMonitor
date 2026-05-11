@@ -96,8 +96,10 @@ struct SuiteProgressView: View {
         state.isDismissed = true
       } label: {
         Image(systemName: "xmark")
-          .font(.caption)
-          .foregroundStyle(.secondary)
+          .font(.system(size: 8, weight: .bold))
+          .foregroundStyle(.white)
+          .padding(4)
+          .background(Color.red.opacity(0.75), in: Circle())
       }
       .buttonStyle(.plain)
       .tooltip("Dismiss")

@@ -186,6 +186,20 @@ final class TestResultParser {
       if detectedTotal == nil || n > (detectedTotal ?? 0) { detectedTotal = n }
     }
 
+    // ** TEST SUCCEEDED/FAILED ** are the most authoritative signals — check them
+    // BEFORE the `guard verdict == nil` so they fire even if a tentative verdict
+    // was already set by an inner "Test Suite ... failed/passed" line.
+    if Self.uiSucceededPattern.firstMatch(in: line, range: range) != nil {
+      verdict = .succeeded
+      authoritativeVerdict = true
+      return
+    }
+    if Self.uiFailedPattern.firstMatch(in: line, range: range) != nil {
+      verdict = .failed
+      authoritativeVerdict = true
+      return
+    }
+
     guard verdict == nil else { return }
 
     // Swift Testing summary carries total count, verdict, and elapsed seconds
@@ -203,15 +217,10 @@ final class TestResultParser {
       if detectedTotal == nil || n > (detectedTotal ?? 0) { detectedTotal = n }
     }
 
-    if Self.uiSucceededPattern.firstMatch(in: line, range: range) != nil {
-      authoritativeVerdict = true
-    } else if let match = Self.xcTestSuiteVerdictPattern.firstMatch(in: line, range: range) {
+    if let match = Self.xcTestSuiteVerdictPattern.firstMatch(in: line, range: range) {
       // Capture endDate from every suite-end line (last one wins = outermost suite).
       endDate = Self.dateFormatter.date(from: substring(line, match: match, group: 2))
-      // Only set a tentative verdict if we haven't seen ** TEST SUCCEEDED/FAILED ** yet.
-      if !authoritativeVerdict {
-        verdict = substring(line, match: match, group: 1) == "passed" ? .succeeded : .failed
-      }
+      verdict = substring(line, match: match, group: 1) == "passed" ? .succeeded : .failed
     }
   }
 
