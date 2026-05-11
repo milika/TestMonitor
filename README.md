@@ -8,26 +8,9 @@ A lightweight macOS SwiftUI app that watches `xcodebuild` log files and displays
 
 ## What It Looks Like
 
-```
-┌─────────────────────────────────────────────────────┐
-│  SmartTube UI Tests                      ⏱ ETA 4m22s │
-│  🕐 Started 12:34:56 · Ended — · running…            │
-│                                                       │
-│  ████████████████░░░░░░░░░  67 / 155  (43%)           │
-│  ✓ 61  ✗ 4  ↷ 2                                       │
-│                                                       │
-│  Worker 1  ██████████  22 tests                       │
-│  Worker 2  ████████░░  18 tests                       │
-│  Worker 3  █████░░░░░  11 tests                       │
-│  Worker 4  ████░░░░░░   9 tests                       │
-│  Worker 5  ███░░░░░░░   7 tests                       │
-│                                                       │
-│  Recent:                                              │
-│  ✓ PlayerControlsUITests.testPlayPause      2.3s      │
-│  ✗ SubscriptionsUITests.testListLoads       5.0s      │
-│  ✓ HomeUITests.testHomeFeedLoads            3.1s      │
-└─────────────────────────────────────────────────────┘
-```
+![TestMonitor main window](docs/screenshots/main-window.png)
+
+> Capture your own screenshot at any time via `curl -s localhost:7777/ss > screenshot.png`.
 
 **Menu bar states:** gray `●` idle → `↻ UI Tests: 67/155 · ETA 4m22s` running → green `✓` passed → red `✗` failed.
 
@@ -63,6 +46,25 @@ When all suites are dismissed the menu bar popover shows "All clear — no activ
   ```bash
   curl -s localhost:7777/ss > /tmp/ss.png && open /tmp/ss.png
   ```
+
+---
+
+## Installation
+
+### Homebrew (recommended)
+
+```bash
+brew tap milika/tap
+brew install --cask testmonitor
+```
+
+### DMG
+
+1. Download **TestMonitor-1.0.dmg** from the [latest release](https://github.com/milika/TestMonitor/releases/latest).
+2. Open the DMG and drag **TestMonitor.app** into your **Applications** folder.
+3. Launch TestMonitor from Applications or Spotlight.
+
+> **Note:** The app is ad-hoc signed and not notarized. On first launch macOS may block it — right-click the app in Finder and choose **Open** to bypass the Gatekeeper warning.
 
 ---
 
