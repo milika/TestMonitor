@@ -60,7 +60,7 @@ brew install --cask testmonitor
 
 ### DMG
 
-1. Download **TestMonitor-1.0.dmg** from the [latest release](https://github.com/milika/TestMonitor/releases/latest).
+1. Download **TestMonitor-1.1.dmg** from the [latest release](https://github.com/milika/TestMonitor/releases/latest).
 2. Open the DMG and drag **TestMonitor.app** into your **Applications** folder.
 3. Launch TestMonitor from Applications or Spotlight.
 
@@ -222,6 +222,23 @@ echo "** TEST FAILED **" >> /tmp/smarttube-parallel-test.log
 - **`O_EVTONLY`** file descriptor — won't block deletion or rotation of the log file
 - Parent directory is also watched so monitoring begins before the log file is created
 - **`XCResultWatcher`** parses the xcresult bundle directory name timestamp (e.g. `Test-SmartTube-2026.05.11_15-57-21-+0200.xcresult`) for accurate run start times independent of when the app launched
+
+---
+
+## Changelog
+
+### v1.1.0
+- **Authoritative results via xcresulttool** — once a run completes TestMonitor re-parses the `.xcresult` bundle using `xcrun xcresulttool` for exact per-test pass/fail/skip counts, replacing streaming estimates
+- **Stale-result fix** — switching to a new xcresult bundle now clears the previous run's results immediately
+- **Correct verdict on failure** — `** TEST FAILED **` now unconditionally closes the run and sets `isRunning = false`
+- **Auto-detected test count** — total known is read from the `Executed N tests` line so the progress bar is correct after restart
+- **Dismiss button** — reddish circle ✕ on every suite card for clear affordance
+- **No duplicate windows** — "Open TestMonitor" raises the existing window instead of spawning a new one
+- **Diagnostic HTTP endpoints** — `/ss`, `/status`, `/logs`, `/debug` on `localhost:7777`
+- **Shell wrapper routing fix** — xcodebuild shim now routes by `-scheme` name, not by `-parallel-testing-enabled` flag
+
+### v1.0.0
+- Initial release
 
 ---
 
