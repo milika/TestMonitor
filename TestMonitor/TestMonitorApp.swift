@@ -2,16 +2,20 @@ import SwiftUI
 
 @main
 struct TestMonitorApp: App {
+  private let screenshotServer = ScreenshotServer(port: 7777)
+  private let shellWrapper = ShellWrapperManager()
+
   @State private var suites: [TestRunState] = [
     TestRunState(
       suiteName: "SmartTube UI Tests",
-      totalKnown: 101,
+      totalKnown: 155,
       logPath: "/tmp/smarttube-parallel-test.log",
-      workerCount: 5
+      workerCount: 5,
+      xcresultLogsDir: "~/Library/Developer/Xcode/DerivedData/SmartTube-dijhsbsrcshguoabqxncubrdhytc/Logs/Test"
     ),
     TestRunState(
       suiteName: "SmartTube Unit Tests",
-      totalKnown: 57,
+      totalKnown: 304,
       logPath: "/tmp/smarttube-unit-tests.log",
       workerCount: 1
     ),
@@ -22,13 +26,14 @@ struct TestMonitorApp: App {
       ContentView(suites: suites)
         .onAppear {
           suites.forEach { $0.startWatching() }
+          screenshotServer.start()
         }
     }
     .windowResizability(.contentSize)
     .defaultSize(width: 560, height: 500)
 
     MenuBarExtra {
-      MenuBarView(suites: suites)
+      MenuBarView(suites: suites, shellWrapper: shellWrapper)
     } label: {
       MenuBarLabel(suites: suites)
     }

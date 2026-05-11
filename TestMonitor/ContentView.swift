@@ -68,6 +68,7 @@ struct SuiteProgressView: View {
         Label("ETA \(formatETA(eta))", systemImage: "timer")
           .font(.subheadline)
           .foregroundStyle(.secondary)
+          .tooltip("Estimated time remaining")
       } else if let verdict = state.verdict {
         VerdictBadge(verdict: verdict)
       }
@@ -79,18 +80,27 @@ struct SuiteProgressView: View {
           .foregroundStyle(.secondary)
       }
       .buttonStyle(.plain)
-      .help("Open log: \(state.logPath)")
-      if !state.isRunning {
+      .tooltip("Open log: \(state.logPath)")
+      if let xcresult = state.xcresultPath {
         Button {
-          state.isDismissed = true
+          NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: xcresult)])
         } label: {
-          Image(systemName: "xmark")
+          Image(systemName: "folder.badge.gearshape")
             .font(.caption)
             .foregroundStyle(.secondary)
         }
         .buttonStyle(.plain)
-        .help("Dismiss")
+        .tooltip("Reveal in Finder: \(xcresult)")
       }
+      Button {
+        state.isDismissed = true
+      } label: {
+        Image(systemName: "xmark")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      .buttonStyle(.plain)
+      .tooltip("Dismiss")
     }
   }
 
@@ -101,6 +111,7 @@ struct SuiteProgressView: View {
         Image(systemName: "clock")
           .font(.caption2)
           .foregroundStyle(.secondary)
+          .tooltip("Run start time")
         Text("Started \(timeString(start))")
           .font(.caption)
           .foregroundStyle(.secondary)
@@ -134,9 +145,9 @@ struct SuiteProgressView: View {
           .foregroundStyle(.secondary)
         Spacer()
         HStack(spacing: 10) {
-          StatusCount(count: state.passed,  icon: "checkmark", color: .green)
-          StatusCount(count: state.failed,  icon: "xmark",     color: .red)
-          StatusCount(count: state.skipped, icon: "arrow.counterclockwise", color: .secondary)
+          StatusCount(count: state.passed,  icon: "checkmark",             color: .green,    hint: "Passed")
+          StatusCount(count: state.failed,  icon: "xmark",                 color: .red,      hint: "Failed")
+          StatusCount(count: state.skipped, icon: "arrow.counterclockwise", color: .secondary, hint: "Skipped")
         }
       }
     }
@@ -175,7 +186,7 @@ struct RecentResultsView: View {
   let results: [TestResult]
 
   private var recent: [TestResult] {
-    Array(results.suffix(20).reversed())
+    Array(results.suffix(20))
   }
 
   var body: some View {
@@ -185,18 +196,37 @@ struct RecentResultsView: View {
           .font(.caption)
           .foregroundStyle(.secondary)
           .padding(.top, 4)
-        ForEach(recent) { result in
-          HStack(spacing: 6) {
-            Image(systemName: result.status.icon)
-              .foregroundStyle(result.status.color)
-              .frame(width: 12)
-            Text("\(result.suite).\(result.name)")
-              .font(.system(size: 11, design: .monospaced))
-              .lineLimit(1)
-            Spacer()
-            Text(String(format: "%.1fs", result.duration))
-              .font(.caption2)
-              .foregroundStyle(.secondary)
+        ScrollViewReader { proxy in
+          ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+              ForEach(recent) { result in
+                HStack(spacing: 6) {
+                  Image(systemName: result.status.icon)
+                    .foregroundStyle(result.status.color)
+                    .frame(width: 12)
+                    .tooltip(result.status.label)
+                  Text("\(result.suite).\(result.name)")
+                    .font(.system(size: 11, design: .monospaced))
+                    .lineLimit(1)
+                  Spacer()
+                  Text(String(format: "%.1fs", result.duration))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
+                .id(result.id)
+              }
+            }
+          }
+          .frame(maxHeight: 160)
+          .onChange(of: recent.last?.id) { _, newID in
+            if let id = newID {
+              withAnimation { proxy.scrollTo(id, anchor: .bottom) }
+            }
+          }
+          .onAppear {
+            if let id = recent.last?.id {
+              proxy.scrollTo(id, anchor: .bottom)
+            }
           }
         }
       }
@@ -227,11 +257,13 @@ struct StatusCount: View {
   let count: Int
   let icon: String
   let color: Color
+  let hint: String
 
   var body: some View {
     Label("\(count)", systemImage: icon)
       .foregroundStyle(color)
       .font(.caption)
+      .tooltip("\(count) \(hint.lowercased())")
   }
 }
 
@@ -251,6 +283,14 @@ extension TestStatus {
     case .passed:  return .green
     case .failed:  return .red
     case .skipped: return .secondary
+    }
+  }
+
+  var label: String {
+    switch self {
+    case .passed:  return "Passed"
+    case .failed:  return "Failed"
+    case .skipped: return "Skipped"
     }
   }
 }

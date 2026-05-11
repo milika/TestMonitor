@@ -5,10 +5,16 @@ import Foundation
 final class LogWatcher {
   private let path: String
   private let onNewContent: (String) -> Void
+  /// Called when the file is truncated — signals a new test run starting.
+  var onTruncated: (() -> Void)?
 
   private var fileSource: DispatchSourceFileSystemObject?
   private var dirSource: DispatchSourceFileSystemObject?
-  private var fileDescriptor: Int32 = -1
+  private var pollTimer: DispatchSourceTimer?
+  // O_EVTONLY fd — used solely for DispatchSource event subscription (cannot read from it)
+  private var eventDescriptor: Int32 = -1
+  // O_RDONLY fd — used for actually reading file content
+  private var readDescriptor: Int32 = -1
   private var currentOffset: UInt64 = 0
 
   private let queue = DispatchQueue(label: "com.testmonitor.logwatcher", qos: .utility)
@@ -21,34 +27,51 @@ final class LogWatcher {
   func start() {
     openAndWatch()
     watchParentDirectory()
+    startPollTimer()
   }
 
   func stop() {
+    pollTimer?.cancel()
+    pollTimer = nil
     fileSource?.cancel()
     dirSource?.cancel()
     fileSource = nil
     dirSource = nil
-    if fileDescriptor != -1 {
-      Darwin.close(fileDescriptor)
-      fileDescriptor = -1
+    if eventDescriptor != -1 {
+      Darwin.close(eventDescriptor)
+      eventDescriptor = -1
+    }
+    if readDescriptor != -1 {
+      Darwin.close(readDescriptor)
+      readDescriptor = -1
     }
   }
 
   // MARK: Private
 
   private func openAndWatch() {
-    let fd = Darwin.open(path, O_EVTONLY)
-    guard fd != -1 else { return }
-    fileDescriptor = fd
+    // Event fd: O_EVTONLY so we don't prevent the file from being deleted/unmounted
+    let evtFd = Darwin.open(path, O_EVTONLY)
+    guard evtFd != -1 else { return }
+    eventDescriptor = evtFd
+
+    // Read fd: O_RDONLY so we can actually read content (O_EVTONLY forbids read/write)
+    let rdFd = Darwin.open(path, O_RDONLY)
+    guard rdFd != -1 else {
+      Darwin.close(evtFd)
+      eventDescriptor = -1
+      return
+    }
+    readDescriptor = rdFd
     currentOffset = 0
 
     let src = DispatchSource.makeFileSystemObjectSource(
-      fileDescriptor: fd,
+      fileDescriptor: evtFd,
       eventMask: .write,
       queue: queue
     )
     src.setEventHandler { [weak self] in self?.readNewContent() }
-    src.setCancelHandler { Darwin.close(fd) }
+    src.setCancelHandler { Darwin.close(evtFd) }
     src.resume()
     fileSource = src
 
@@ -57,14 +80,21 @@ final class LogWatcher {
   }
 
   private func readNewContent() {
-    guard fileDescriptor != -1 else { return }
-    let fileSize = lseek(fileDescriptor, 0, SEEK_END)
+    guard readDescriptor != -1 else { return }
+    let fileSize = lseek(readDescriptor, 0, SEEK_END)
+
+    // File was truncated — new run started.
+    if fileSize < Int64(currentOffset) {
+      currentOffset = 0
+      DispatchQueue.main.async { self.onTruncated?() }
+    }
+
     guard fileSize > Int64(currentOffset) else { return }
 
     let bytesToRead = Int(fileSize) - Int(currentOffset)
     var buffer = [UInt8](repeating: 0, count: bytesToRead)
-    lseek(fileDescriptor, Int64(currentOffset), SEEK_SET)
-    let bytesRead = read(fileDescriptor, &buffer, bytesToRead)
+    lseek(readDescriptor, Int64(currentOffset), SEEK_SET)
+    let bytesRead = read(readDescriptor, &buffer, bytesToRead)
     guard bytesRead > 0 else { return }
 
     currentOffset += UInt64(bytesRead)
@@ -85,12 +115,29 @@ final class LogWatcher {
       queue: queue
     )
     src.setEventHandler { [weak self] in
-      guard let self, self.fileDescriptor == -1 else { return }
+      guard let self, self.eventDescriptor == -1 else { return }
       self.openAndWatch()
     }
     src.setCancelHandler { Darwin.close(dirFd) }
     src.resume()
     dirSource = src
+  }
+
+  /// Fallback 10-second poll — catches write events that DispatchSource may miss
+  /// (e.g. file was already being written before the watcher was registered).
+  private func startPollTimer() {
+    let timer = DispatchSource.makeTimerSource(queue: queue)
+    timer.schedule(deadline: .now() + 10, repeating: 10)
+    timer.setEventHandler { [weak self] in
+      guard let self else { return }
+      if self.eventDescriptor == -1 {
+        self.openAndWatch()
+      } else {
+        self.readNewContent()
+      }
+    }
+    timer.resume()
+    pollTimer = timer
   }
 
   deinit { stop() }
