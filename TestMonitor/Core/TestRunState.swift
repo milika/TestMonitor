@@ -84,30 +84,19 @@ final class TestRunState: Identifiable {
     guard logWatcher == nil, xcresultWatcher == nil else { return }
 
     if let dir = xcresultLogsDir {
-      let watcher = XCResultWatcher(logsDir: dir) { [weak self] chunk, workerIndex in
-        DispatchQueue.main.async { self?.ingest(chunk: chunk, workerIndex: workerIndex) }
-      }
-      watcher.onStartDate = { [weak self] date in
-        DispatchQueue.main.async {
-          guard let self else { return }
-          // Use the xcresult bundle timestamp as the authoritative start time only
-          // if we don't already have a better (log-parsed) value.
-          if self.startTime == nil || self.startTime! > date {
-            self.startTime = date
-            self.isRunning = true
-          }
-        }
-      }
+      let watcher = makeXCResultWatcher(logsDir: dir)
       xcresultWatcher = watcher
       watcher.start()
     }
 
     // When xcresultLogsDir is set, the XCResultWatcher handles all test result
-    // parsing. The LogWatcher is kept only to detect run restarts (truncation).
-    // When xcresultLogsDir is nil (unit tests), the log IS the sole data source.
+    // parsing. The LogWatcher is kept to:
+    //   1. detect run restarts (truncation)
+    //   2. extract "Executed N tests" count so totalKnown reflects the actual run size
+    // Individual test results are NOT parsed from the log here to avoid double-counting.
     let onChunk: (String) -> Void = xcresultLogsDir == nil
       ? { [weak self] chunk in DispatchQueue.main.async { self?.ingest(chunk: chunk, workerIndex: 0) } }
-      : { _ in }
+      : { [weak self] chunk in DispatchQueue.main.async { self?.ingestCountOnly(chunk: chunk) } }
 
     let watcher = LogWatcher(path: logPath, onNewContent: onChunk)
     watcher.onTruncated = { [weak self] in
@@ -124,7 +113,9 @@ final class TestRunState: Identifiable {
     xcresultWatcher = nil
   }
 
-  func reset() {
+  /// Clear all run state (results, times, verdict, parser) without touching the watchers.
+  /// Called when the XCResultWatcher detects a new bundle mid-session.
+  func resetState() {
     results = []
     startTime = nil
     endTime = nil
@@ -133,28 +124,79 @@ final class TestRunState: Identifiable {
     isDismissed = false
     xcresultPath = nil
     parser = TestResultParser()
+  }
+
+  /// Full reset: clears state AND recreates the xcresult watcher.
+  /// Called when the log is truncated (new xcodebuild invocation from scratch).
+  func reset() {
+    resetState()
     // Restart xcresult watcher so it picks up the new xcresult bundle
     xcresultWatcher?.stop()
     xcresultWatcher = nil
     if let dir = xcresultLogsDir {
-      let watcher = XCResultWatcher(logsDir: dir) { [weak self] chunk, workerIndex in
-        DispatchQueue.main.async { self?.ingest(chunk: chunk, workerIndex: workerIndex) }
-      }
-      watcher.onStartDate = { [weak self] date in
-        DispatchQueue.main.async {
-          guard let self else { return }
-          if self.startTime == nil || self.startTime! > date {
-            self.startTime = date
-            self.isRunning = true
-          }
-        }
-      }
+      let watcher = makeXCResultWatcher(logsDir: dir)
       xcresultWatcher = watcher
       watcher.start()
     }
   }
 
+  private func makeXCResultWatcher(logsDir: String) -> XCResultWatcher {
+    let watcher = XCResultWatcher(logsDir: logsDir) { [weak self] chunk, workerIndex in
+      DispatchQueue.main.async { self?.ingest(chunk: chunk, workerIndex: workerIndex) }
+    }
+    watcher.onStartDate = { [weak self] date in
+      DispatchQueue.main.async {
+        guard let self else { return }
+        if self.startTime == nil || self.startTime! > date {
+          self.startTime = date
+          self.isRunning = true
+        }
+      }
+    }
+    watcher.onNewBundle = { [weak self] in
+      DispatchQueue.main.async { self?.resetState() }
+    }
+    watcher.onBundleComplete = { [weak self] path in
+      self?.applyXCResultTool(xcresultPath: path)
+    }
+    return watcher
+  }
+
   // MARK: Private
+
+  /// Shell out to xcresulttool and replace streaming estimates with authoritative data.
+  /// Safe to call multiple times — idempotent (deduped by xcresultPath).
+  private func applyXCResultTool(xcresultPath path: String) {
+    Task {
+      guard let parsed = await XCResultToolParser.parse(xcresultPath: path) else { return }
+      await MainActor.run {
+        // Replace results only if xcresulttool returned data for THIS bundle.
+        // Guard against a race where a new run started before we finished parsing.
+        if self.xcresultPath == nil || self.xcresultPath == path || !self.isRunning {
+          self.results = parsed.results
+          self.totalKnown = parsed.totalCount
+          self.verdict = parsed.verdict
+          self.isRunning = false
+          if self.xcresultPath == nil { self.xcresultPath = path }
+          if self.endTime == nil { self.endTime = Date() }
+        }
+      }
+    }
+  }
+
+  /// Lightweight ingestion for the main xcodebuild log when xcresultLogsDir is active.
+  /// Only extracts "Executed N tests" count — does not parse individual results.
+  private func ingestCountOnly(chunk: String) {
+    let lines = chunk.components(separatedBy: "\n")
+    for line in lines {
+      // "         Executed 2 tests, with 2 tests skipped and 0 failures ..."
+      guard line.contains("Executed"), line.contains("tests") else { continue }
+      let parts = line.trimmingCharacters(in: .whitespaces).components(separatedBy: " ")
+      if parts.first == "Executed", let n = Int(parts[1]), n > 0 {
+        if n > totalKnown || totalKnown == 155 { totalKnown = max(n, completed) }
+      }
+    }
+  }
 
   func ingest(chunk: String, workerIndex: Int = 0) {
     let newResults = parser.parse(chunk: chunk, workerIndex: workerIndex)
@@ -201,6 +243,13 @@ final class TestRunState: Identifiable {
         // startTime from the elapsed seconds reported in the run summary.
         if parser.startDate == nil, let elapsed = parser.elapsedSeconds {
           startTime = endTime!.addingTimeInterval(-elapsed)
+        }
+        // Trigger authoritative xcresulttool parse after a short delay to ensure
+        // the bundle is fully flushed before we read it.
+        if let cap = xcresultPath {
+          DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.applyXCResultTool(xcresultPath: cap)
+          }
         }
       }
     }

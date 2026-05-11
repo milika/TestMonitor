@@ -26,8 +26,9 @@ final class ShellWrapperManager {
     exec "$REAL_XCODEBUILD" "$@"
   fi
 
-  # Route to the appropriate log based on scheme / flags.
-  if [[ " $* " == *"SmartTubeTests"* ]] || [[ " $* " == *"-parallel-testing-enabled NO"* ]]; then
+  # Route to the appropriate log based on scheme name.
+  # SmartTubeTests scheme = unit tests; everything else = UI/parallel tests.
+  if [[ "$*" == *"-scheme SmartTubeTests"* ]]; then
     logfile="/tmp/smarttube-unit-tests.log"
   else
     logfile="/tmp/smarttube-parallel-test.log"

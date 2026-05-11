@@ -17,10 +17,19 @@ final class XCResultWatcher {
   /// Called (from the watcher's internal queue) when a new xcresult bundle is found
   /// whose directory name encodes a start timestamp. Dispatch to main as needed.
   var onStartDate: ((Date) -> Void)?
+  /// Called (from the watcher's internal queue) when the watcher switches to a
+  /// **different** xcresult bundle than the one it was previously tracking.
+  /// Use this to clear stale state before the new run's results arrive.
+  var onNewBundle: (() -> Void)?
+  /// Called (from the watcher's internal queue) when a bundle is confirmed complete
+  /// (no Staging directory present). Fires at most once per bundle path.
+  /// Use this to trigger an authoritative `xcresulttool` parse.
+  var onBundleComplete: ((String) -> Void)?
 
   private var activeXCResult: String = ""
   private var knownFiles: Set<String> = []
   private var fileWatchers: [String: LogWatcher] = [:]
+  private var reportedCompleteBundles: Set<String> = []
 
   private var scanTimer: DispatchSourceTimer?
   private var dirSource: DispatchSourceFileSystemObject?
@@ -60,6 +69,7 @@ final class XCResultWatcher {
     fileWatchers.removeAll()
     knownFiles.removeAll()
     activeXCResult = ""
+    reportedCompleteBundles.removeAll()
   }
 
   // MARK: - Private
@@ -104,7 +114,11 @@ final class XCResultWatcher {
       fileWatchers.values.forEach { $0.stop() }
       fileWatchers.removeAll()
       knownFiles.removeAll()
+      let isSwitch = !activeXCResult.isEmpty   // false on first scan, true on actual switch
       activeXCResult = xcresultPath
+      if isSwitch {
+        onNewBundle?()
+      }
       // Parse the bundle directory name for the actual run start timestamp.
       if let startDate = parseStartDate(from: latest) {
         onStartDate?(startDate)
@@ -113,6 +127,14 @@ final class XCResultWatcher {
 
     // Staging dir is only present while the run is in progress.
     let stagingPath = "\(xcresultPath)/Staging"
+    let stagingExists = fm.fileExists(atPath: stagingPath)
+
+    // If staging is gone, the run is complete — fire onBundleComplete once.
+    if !stagingExists && !reportedCompleteBundles.contains(xcresultPath) {
+      reportedCompleteBundles.insert(xcresultPath)
+      onBundleComplete?(xcresultPath)
+    }
+
     guard let enumerator = fm.enumerator(atPath: stagingPath) else { return }
 
     for case let relPath as String in enumerator {

@@ -60,6 +60,12 @@ final class TestResultParser {
     pattern: #"^. Test run with (\d+) tests in \d+ suites (passed|failed) after (\d+\.\d+) seconds\."#
   )
 
+  // XCTest executed summary — gives actual test count for the run
+  // "         Executed 2 tests, with 2 tests skipped and 0 failures (0 unexpected) in 46.500 (46.504) seconds"
+  private static let xcTestExecutedPattern = try! NSRegularExpression(
+    pattern: #"Executed (\d+) tests?, with"#
+  )
+
   // xcresult path — appears on the line after the label
   // Test session results, code coverage, and logs:
   //         /path/to/Run.xcresult
@@ -172,8 +178,15 @@ final class TestResultParser {
   }
 
   private func checkVerdict(in line: String) {
-    guard verdict == nil else { return }
     let range = NSRange(line.startIndex..., in: line)
+
+    // XCTest "Executed N tests" — update detectedTotal (pick largest seen, i.e. outermost suite)
+    if let match = Self.xcTestExecutedPattern.firstMatch(in: line, range: range) {
+      let n = Int(substring(line, match: match, group: 1)) ?? 0
+      if detectedTotal == nil || n > (detectedTotal ?? 0) { detectedTotal = n }
+    }
+
+    guard verdict == nil else { return }
 
     // Swift Testing summary carries total count, verdict, and elapsed seconds
     if let match = Self.testRunSummaryPattern.firstMatch(in: line, range: range) {
@@ -184,11 +197,13 @@ final class TestResultParser {
       return
     }
 
+    // XCTest "Executed N tests" — update detectedTotal (pick largest seen, i.e. outermost suite)
+    if let match = Self.xcTestExecutedPattern.firstMatch(in: line, range: range) {
+      let n = Int(substring(line, match: match, group: 1)) ?? 0
+      if detectedTotal == nil || n > (detectedTotal ?? 0) { detectedTotal = n }
+    }
+
     if Self.uiSucceededPattern.firstMatch(in: line, range: range) != nil {
-      verdict = .succeeded
-      authoritativeVerdict = true
-    } else if Self.uiFailedPattern.firstMatch(in: line, range: range) != nil {
-      verdict = .failed
       authoritativeVerdict = true
     } else if let match = Self.xcTestSuiteVerdictPattern.firstMatch(in: line, range: range) {
       // Capture endDate from every suite-end line (last one wins = outermost suite).

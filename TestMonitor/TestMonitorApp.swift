@@ -26,6 +26,7 @@ struct TestMonitorApp: App {
       ContentView(suites: suites)
         .onAppear {
           suites.forEach { $0.startWatching() }
+          screenshotServer.setSuites { [suites] in suites }
           screenshotServer.start()
         }
     }
