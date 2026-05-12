@@ -38,12 +38,29 @@ final class TestRunState: Identifiable {
   var endTime: Date?
   var isRunning: Bool = false
   var verdict: Verdict?
-  var isDismissed: Bool = false
+  var isDismissed: Bool = false {
+    didSet { Self.setDismissed(logPath: logPath, dismissed: isDismissed) }
+  }
   var xcresultPath: String?
 
   private var logWatcher: LogWatcher?
   private var xcresultWatcher: XCResultWatcher?
   private var parser = TestResultParser()
+
+  // MARK: Dismissed persistence
+
+  private static let dismissedDefaultsKey = "com.testmonitor.dismissedLogPaths"
+
+  private static func dismissedPaths() -> Set<String> {
+    let arr = UserDefaults.standard.stringArray(forKey: dismissedDefaultsKey) ?? []
+    return Set(arr)
+  }
+
+  private static func setDismissed(logPath: String, dismissed: Bool) {
+    var paths = dismissedPaths()
+    if dismissed { paths.insert(logPath) } else { paths.remove(logPath) }
+    UserDefaults.standard.set(Array(paths), forKey: dismissedDefaultsKey)
+  }
 
   init(suiteName: String, totalKnown: Int, logPath: String, workerCount: Int = 1, xcresultLogsDir: String? = nil) {
     self.suiteName = suiteName
@@ -51,6 +68,7 @@ final class TestRunState: Identifiable {
     self.logPath = logPath
     self.workerCount = workerCount
     self.xcresultLogsDir = xcresultLogsDir
+    self.isDismissed = Self.dismissedPaths().contains(logPath)
   }
 
   // MARK: Derived
@@ -121,7 +139,7 @@ final class TestRunState: Identifiable {
     endTime = nil
     isRunning = false
     verdict = nil
-    isDismissed = false
+    isDismissed = false   // new run → clear persisted dismissal
     xcresultPath = nil
     parser = TestResultParser()
   }
@@ -173,7 +191,21 @@ final class TestRunState: Identifiable {
         // Replace results only if xcresulttool returned data for THIS bundle.
         // Guard against a race where a new run started before we finished parsing.
         if self.xcresultPath == nil || self.xcresultPath == path || !self.isRunning {
-          self.results = parsed.results
+          // Build a lookup from the streaming results so we can re-apply their
+          // worker indices onto the authoritative xcresulttool results (which
+          // always come back with workerIndex == 0).
+          var workerByKey: [String: Int] = [:]
+          for r in self.results where r.workerIndex > 0 {
+            workerByKey["\(r.suite)/\(r.name)"] = r.workerIndex
+          }
+          let merged = parsed.results.map { r -> TestResult in
+            let key = "\(r.suite)/\(r.name)"
+            let worker = workerByKey[key] ?? r.workerIndex
+            return TestResult(suite: r.suite, name: r.name,
+                              status: r.status, duration: r.duration,
+                              workerIndex: worker)
+          }
+          self.results = merged
           self.totalKnown = parsed.totalCount
           self.verdict = parsed.verdict
           self.isRunning = false
