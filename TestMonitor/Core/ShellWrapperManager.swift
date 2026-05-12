@@ -10,41 +10,28 @@ import Observation
 @Observable
 final class ShellWrapperManager {
 
+  // MARK: - LogRoute
+
+  /// Maps an xcodebuild scheme name to the log file TestMonitor should watch.
+  struct LogRoute {
+    let schemeName: String
+    let logPath: String
+  }
+
+  // MARK: - Constants
+
   // Marker embedded in the shim so we can distinguish our file from anything else.
   private static let shimMarker = "# TestMonitor xcodebuild shim"
 
-  private static let shimScript = """
-  #!/bin/bash
-  # TestMonitor xcodebuild shim
-  # Transparently tees `xcodebuild test` output to the log files TestMonitor watches.
-  # Remove by choosing "Remove Shell Wrapper" from the TestMonitor menu bar.
+  /// Path where the shim appends every intercepted xcodebuild command for replay / debugging.
+  static let commandLogPath = "/tmp/testmonitor-commands.log"
 
-  REAL_XCODEBUILD="$(xcrun --find xcodebuild 2>/dev/null || echo /usr/bin/xcodebuild)"
-
-  # Pass non-test invocations straight through.
-  if [[ " $* " != *" test "* ]]; then
-    exec "$REAL_XCODEBUILD" "$@"
-  fi
-
-  # Route to the appropriate log based on scheme name.
-  # SmartTubeTests scheme = unit tests; everything else = UI/parallel tests.
-  if [[ "$*" == *"-scheme SmartTubeTests"* ]]; then
-    logfile="/tmp/smarttube-unit-full.log"
-  else
-    logfile="/tmp/smarttube-parallel-test.log"
-  fi
-
-  : > "$logfile"
-  echo "  [TestMonitor] → $logfile" >&2
-
-  # Debug: append the full invoked command so it can be replayed later.
-  printf '%s | %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$REAL_XCODEBUILD" "$*" >> "/tmp/testmonitor-commands.log"
-
-  exec "$REAL_XCODEBUILD" "$@" 2>&1 | tee -a "$logfile"
-  """
+  // MARK: - State
 
   private(set) var isInstalled: Bool = false
   private(set) var lastError: String?
+  private var logRoutes: [LogRoute] = []
+  private var defaultLogPath: String = "/tmp/xcodebuild.log"
 
   /// Directory where the shim is placed. Chosen to appear before /usr/bin in PATH.
   private static var shimDir: String {
@@ -66,21 +53,18 @@ final class ShellWrapperManager {
     lastError = nil
   }
 
+  /// Set the log-routing table that the shim will use.
+  /// If the shim is already installed it is regenerated in place.
+  func configure(routes: [LogRoute], defaultLogPath: String) {
+    self.logRoutes = routes
+    self.defaultLogPath = defaultLogPath
+    if isInstalled { writeShim() }
+  }
+
   func install() {
     guard !isInstalled else { return }
-    // Remove any stale ~/.zshrc wrapper left from the old approach.
     removeZshrcWrapper()
-    do {
-      try Self.shimScript.write(toFile: Self.shimPath, atomically: true, encoding: .utf8)
-      try FileManager.default.setAttributes(
-        [.posixPermissions: 0o755],
-        ofItemAtPath: Self.shimPath
-      )
-      isInstalled = true
-      lastError = nil
-    } catch {
-      lastError = error.localizedDescription
-    }
+    writeShim()
   }
 
   func remove() {
@@ -92,6 +76,66 @@ final class ShellWrapperManager {
     } catch {
       lastError = error.localizedDescription
     }
+  }
+
+  // MARK: - Shim Generation
+
+  /// Write (or overwrite) the shim to disk using the current routing table.
+  private func writeShim() {
+    let script = Self.makeShimScript(
+      routes: logRoutes,
+      defaultLogPath: defaultLogPath,
+      commandLogPath: Self.commandLogPath
+    )
+    do {
+      try script.write(toFile: Self.shimPath, atomically: true, encoding: .utf8)
+      try FileManager.default.setAttributes(
+        [.posixPermissions: 0o755],
+        ofItemAtPath: Self.shimPath
+      )
+      isInstalled = true
+      lastError = nil
+    } catch {
+      lastError = error.localizedDescription
+    }
+  }
+
+  private static func makeShimScript(
+    routes: [LogRoute],
+    defaultLogPath: String,
+    commandLogPath: String
+  ) -> String {
+    // Build routing: start from the default, then override per named scheme.
+    let overrides = routes
+      .map { r in "  [[ \"$*\" == *\"-scheme \(r.schemeName)\"* ]] && logfile=\"\(r.logPath)\"" }
+      .joined(separator: "\n")
+    let routingBlock = overrides.isEmpty
+      ? "  logfile=\"\(defaultLogPath)\""
+      : "  logfile=\"\(defaultLogPath)\"\n\(overrides)"
+    return """
+    #!/bin/bash
+    # TestMonitor xcodebuild shim
+    # Transparently tees `xcodebuild test` output to the log files TestMonitor watches.
+    # Remove by choosing \"Remove Shell Wrapper\" from the TestMonitor menu bar.
+
+    REAL_XCODEBUILD=\"$(xcrun --find xcodebuild 2>/dev/null || echo /usr/bin/xcodebuild)\"
+
+    # Pass non-test invocations straight through.
+    if [[ \" $* \" != *\" test \"* ]]; then
+      exec \"$REAL_XCODEBUILD\" \"$@\"
+    fi
+
+    # Route to the appropriate log based on -scheme argument.
+    \(routingBlock)
+
+    : > \"$logfile\"
+    echo \"  [TestMonitor] \u2192 $logfile\" >&2
+
+    # Append the full invoked command for replay / debugging.
+    printf '%s | %s %s\\n' \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\" \"$REAL_XCODEBUILD\" \"$*\" >> \"\(commandLogPath)\"
+
+    exec \"$REAL_XCODEBUILD\" \"$@\" 2>&1 | tee -a \"$logfile\"
+    \"\"\"
   }
 
   // MARK: - Migration: clean up the old ~/.zshrc function if present

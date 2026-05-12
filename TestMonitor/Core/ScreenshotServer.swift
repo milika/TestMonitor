@@ -173,7 +173,7 @@ final class ScreenshotServer {
   // MARK: - /command
 
   private func buildCommandResponse() -> Data {
-    let path = "/tmp/testmonitor-commands.log"
+    let path = ShellWrapperManager.commandLogPath
     guard let content = try? String(contentsOfFile: path, encoding: .utf8), !content.isEmpty else {
       return textResponse(status: "404 Not Found", body: "No commands logged yet — run a test via the shim first.")
     }

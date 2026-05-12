@@ -26,13 +26,15 @@ struct TestResult: Identifiable, Sendable {
 final class TestRunState: Identifiable {
   let id = UUID()
   let suiteName: String
-  private let configuredTotal: Int
+  /// xcodebuild scheme name — used for DerivedData auto-discovery and shim routing.
+  let schemeName: String?
   var totalKnown: Int
   let logPath: String
   let workerCount: Int
-  /// Optional: DerivedData `Logs/Test/` path for XCTest-based UI tests.
-  /// When set, an `XCResultWatcher` is used instead of a plain `LogWatcher`.
-  let xcresultLogsDir: String?
+  /// Discovered path to DerivedData `Logs/Test/` for XCTest-based UI tests.
+  /// Auto-discovered from `schemeName` at watch time; nil until discovered or if
+  /// no DerivedData directory matches.
+  private(set) var xcresultLogsDir: String?
 
   var results: [TestResult] = []
   var startTime: Date?
@@ -76,13 +78,13 @@ final class TestRunState: Identifiable {
     UserDefaults.standard.set(dates, forKey: dismissalDatesKey)
   }
 
-  init(suiteName: String, totalKnown: Int, logPath: String, workerCount: Int = 1, xcresultLogsDir: String? = nil) {
+  init(suiteName: String, logPath: String, workerCount: Int = 1, schemeName: String? = nil) {
     self.suiteName = suiteName
-    self.configuredTotal = totalKnown
-    self.totalKnown = totalKnown
+    self.schemeName = schemeName
+    self.totalKnown = 0
     self.logPath = logPath
     self.workerCount = workerCount
-    self.xcresultLogsDir = xcresultLogsDir
+    self.xcresultLogsDir = nil  // discovered lazily in startWatching()
 
     // Auto-undismiss if the log was modified after the dismissal — means a new
     // run started while the app was closed and the truncation event was missed.
@@ -116,7 +118,7 @@ final class TestRunState: Identifiable {
   }
 
   var eta: TimeInterval? {
-    guard let start = startTime, completed >= 5 else { return nil }
+    guard let start = startTime, completed >= 5, totalKnown > completed else { return nil }
     let elapsed = Date().timeIntervalSince(start)
     guard elapsed > 0 else { return nil }
     let rate = Double(completed) / elapsed
@@ -145,6 +147,11 @@ final class TestRunState: Identifiable {
 
   func startWatching() {
     guard logWatcher == nil, xcresultWatcher == nil else { return }
+
+    // Auto-discover DerivedData Logs/Test dir the first time we start watching.
+    if xcresultLogsDir == nil, let prefix = schemeName {
+      xcresultLogsDir = XCResultWatcher.discoverLogsDir(forSchemePrefix: prefix)
+    }
 
     if let dir = xcresultLogsDir {
       let watcher = makeXCResultWatcher(logsDir: dir)
@@ -187,14 +194,18 @@ final class TestRunState: Identifiable {
     isDismissed = false   // new run → clear persisted dismissal
     xcresultPath = nil
     parser = TestResultParser()
-    totalKnown = configuredTotal
+    totalKnown = 0
   }
 
   /// Full reset: clears state AND recreates the xcresult watcher.
   /// Called when the log is truncated (new xcodebuild invocation from scratch).
   func reset() {
     resetState()
-    // Restart xcresult watcher so it picks up the new xcresult bundle
+    // Re-discover the DerivedData path in case it changed (e.g. after DerivedData clean).
+    if let prefix = schemeName {
+      xcresultLogsDir = XCResultWatcher.discoverLogsDir(forSchemePrefix: prefix)
+    }
+    // Restart xcresult watcher so it picks up the new xcresult bundle.
     xcresultWatcher?.stop()
     xcresultWatcher = nil
     if let dir = xcresultLogsDir {

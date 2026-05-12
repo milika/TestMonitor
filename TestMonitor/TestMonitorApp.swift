@@ -10,16 +10,15 @@ struct TestMonitorApp: App {
   @State private var suites: [TestRunState] = [
     TestRunState(
       suiteName: "SmartTube UI Tests",
-      totalKnown: 155,
       logPath: "/tmp/smarttube-parallel-test.log",
       workerCount: 5,
-      xcresultLogsDir: "~/Library/Developer/Xcode/DerivedData/SmartTube-dijhsbsrcshguoabqxncubrdhytc/Logs/Test"
+      schemeName: "SmartTube"         // auto-discovers DerivedData/SmartTube-*/Logs/Test
     ),
     TestRunState(
       suiteName: "SmartTube Unit Tests",
-      totalKnown: 387,
       logPath: "/tmp/smarttube-unit-full.log",
-      workerCount: 1
+      workerCount: 1,
+      schemeName: "SmartTubeTests"    // routed separately in the shim
     ),
   ]
 
@@ -28,6 +27,11 @@ struct TestMonitorApp: App {
       ContentView(suites: suites)
         .onAppear {
           suites.forEach { $0.startWatching() }
+          // Build shim routing table from suite config — no hardcoded paths in the script.
+          let routes = suites.compactMap { s in
+            s.schemeName.map { ShellWrapperManager.LogRoute(schemeName: $0, logPath: s.logPath) }
+          }
+          shellWrapper.configure(routes: routes, defaultLogPath: suites.first?.logPath ?? "/tmp/xcodebuild.log")
 #if DEBUG
           screenshotServer.setSuites { [suites] in suites }
           screenshotServer.start()

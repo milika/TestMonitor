@@ -142,9 +142,15 @@ struct SuiteProgressView: View {
       ProgressView(value: state.progressFraction)
         .progressViewStyle(.linear)
       HStack {
-        Text("\(state.completed) / \(state.totalKnown)  (\(Int(state.progressFraction * 100))%)")
-          .font(.footnote)
-          .foregroundStyle(.secondary)
+        Group {
+          if state.totalKnown > 0 {
+            Text("\(state.completed) / \(state.totalKnown)  (\(Int(state.progressFraction * 100))%)")
+          } else {
+            Text("\(state.completed) tests")
+          }
+        }
+        .font(.footnote)
+        .foregroundStyle(.secondary)
         Spacer()
         HStack(spacing: 10) {
           StatusCount(count: state.passed,  icon: "checkmark",             color: .green,    hint: "Passed")

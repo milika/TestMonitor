@@ -7,7 +7,9 @@ struct TestRunStateDerivedTests {
 
   // Helper: build a state with pre-seeded results (no file watching)
   private func makeState(total: Int = 10) -> TestRunState {
-    TestRunState(suiteName: "Tests", totalKnown: total, logPath: "/dev/null")
+    let state = TestRunState(suiteName: "Tests", logPath: "/dev/null")
+    state.totalKnown = total
+    return state
   }
 
   private func result(status: TestStatus, worker: Int = 0) -> TestResult {

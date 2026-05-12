@@ -82,6 +82,35 @@ final class XCResultWatcher {
     reportedCompleteBundles.removeAll()
   }
 
+  // MARK: - DerivedData Discovery
+
+  /// Scan `~/Library/Developer/Xcode/DerivedData` for the most recently modified
+  /// directory whose name starts with `{schemePrefix}-` and return its `Logs/Test`
+  /// subdirectory path, or nil if none is found.
+  static func discoverLogsDir(forSchemePrefix prefix: String) -> String? {
+    let fm = FileManager.default
+    let base = ("~/Library/Developer/Xcode/DerivedData" as NSString).expandingTildeInPath
+    let baseURL = URL(fileURLWithPath: base)
+    guard let entries = try? fm.contentsOfDirectory(
+      at: baseURL,
+      includingPropertiesForKeys: [.contentModificationDateKey],
+      options: .skipsHiddenFiles
+    ) else { return nil }
+    let candidate = entries
+      .filter { $0.lastPathComponent.hasPrefix(prefix + "-") }
+      .sorted {
+        let a = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+        let b = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+        return a > b
+      }
+      .first
+    guard let best = candidate else { return nil }
+    let logsTest = best.appendingPathComponent("Logs/Test")
+    var isDir: ObjCBool = false
+    return fm.fileExists(atPath: logsTest.path, isDirectory: &isDir) && isDir.boolValue
+      ? logsTest.path : nil
+  }
+
   // MARK: - Private
 
   private func startScanTimer() {
