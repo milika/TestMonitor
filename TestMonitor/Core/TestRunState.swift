@@ -26,6 +26,7 @@ struct TestResult: Identifiable, Sendable {
 final class TestRunState: Identifiable {
   let id = UUID()
   let suiteName: String
+  private let configuredTotal: Int
   var totalKnown: Int
   let logPath: String
   let workerCount: Int
@@ -50,25 +51,56 @@ final class TestRunState: Identifiable {
   // MARK: Dismissed persistence
 
   private static let dismissedDefaultsKey = "com.testmonitor.dismissedLogPaths"
+  private static let dismissalDatesKey    = "com.testmonitor.dismissalDates"
 
   private static func dismissedPaths() -> Set<String> {
     let arr = UserDefaults.standard.stringArray(forKey: dismissedDefaultsKey) ?? []
     return Set(arr)
   }
 
+  private static func dismissalDates() -> [String: Double] {
+    UserDefaults.standard.dictionary(forKey: dismissalDatesKey) as? [String: Double] ?? [:]
+  }
+
   private static func setDismissed(logPath: String, dismissed: Bool) {
     var paths = dismissedPaths()
-    if dismissed { paths.insert(logPath) } else { paths.remove(logPath) }
+    var dates = dismissalDates()
+    if dismissed {
+      paths.insert(logPath)
+      dates[logPath] = Date().timeIntervalSinceReferenceDate
+    } else {
+      paths.remove(logPath)
+      dates.removeValue(forKey: logPath)
+    }
     UserDefaults.standard.set(Array(paths), forKey: dismissedDefaultsKey)
+    UserDefaults.standard.set(dates, forKey: dismissalDatesKey)
   }
 
   init(suiteName: String, totalKnown: Int, logPath: String, workerCount: Int = 1, xcresultLogsDir: String? = nil) {
     self.suiteName = suiteName
+    self.configuredTotal = totalKnown
     self.totalKnown = totalKnown
     self.logPath = logPath
     self.workerCount = workerCount
     self.xcresultLogsDir = xcresultLogsDir
-    self.isDismissed = Self.dismissedPaths().contains(logPath)
+
+    // Auto-undismiss if the log was modified after the dismissal — means a new
+    // run started while the app was closed and the truncation event was missed.
+    let wasDismissed = Self.dismissedPaths().contains(logPath)
+    if wasDismissed,
+       let stored = Self.dismissalDates()[logPath] {
+      let dismissedAt = Date(timeIntervalSinceReferenceDate: stored)
+      let fileMtime = (try? FileManager.default.attributesOfItem(atPath: logPath))?[.modificationDate] as? Date
+      if let fileMtime, fileMtime > dismissedAt {
+        // Log is newer than dismissal — new run started; clear the dismiss.
+        Self.setDismissed(logPath: logPath, dismissed: false)
+        self.isDismissed = false
+      } else {
+        self.isDismissed = true
+      }
+    } else {
+      self.isDismissed = wasDismissed
+    }
   }
 
   // MARK: Derived
@@ -142,6 +174,7 @@ final class TestRunState: Identifiable {
     isDismissed = false   // new run → clear persisted dismissal
     xcresultPath = nil
     parser = TestResultParser()
+    totalKnown = configuredTotal
   }
 
   /// Full reset: clears state AND recreates the xcresult watcher.
@@ -217,15 +250,29 @@ final class TestRunState: Identifiable {
   }
 
   /// Lightweight ingestion for the main xcodebuild log when xcresultLogsDir is active.
-  /// Only extracts "Executed N tests" count — does not parse individual results.
+  /// Extracts "Executed N tests" count and the final ** TEST SUCCEEDED/FAILED ** verdict.
   private func ingestCountOnly(chunk: String) {
     let lines = chunk.components(separatedBy: "\n")
     for line in lines {
+      // Final verdict — authoritative signal from xcodebuild.
+      if line.contains("** TEST SUCCEEDED **") {
+        if verdict == nil { verdict = .succeeded }
+        isRunning = false
+        if endTime == nil { endTime = Date() }
+        continue
+      }
+      if line.contains("** TEST FAILED **") {
+        verdict = .failed   // always override — failure beats a tentative success
+        isRunning = false
+        if endTime == nil { endTime = Date() }
+        continue
+      }
       // "         Executed 2 tests, with 2 tests skipped and 0 failures ..."
+      // Only grow totalKnown — never shrink it from a partial-suite line.
       guard line.contains("Executed"), line.contains("tests") else { continue }
       let parts = line.trimmingCharacters(in: .whitespaces).components(separatedBy: " ")
-      if parts.first == "Executed", let n = Int(parts[1]), n > 0 {
-        if n > totalKnown || totalKnown == 155 { totalKnown = max(n, completed) }
+      if parts.first == "Executed", let n = Int(parts[1]), n > totalKnown {
+        totalKnown = n
       }
     }
   }
@@ -254,11 +301,12 @@ final class TestRunState: Identifiable {
     }
 
     // Use auto-detected total if available (Swift Testing reports exact count)
-    if let detected = parser.detectedTotal {
+    // Only grow — never shrink (detectedTotal can be a partial-suite sub-count).
+    if let detected = parser.detectedTotal, detected > totalKnown {
       totalKnown = detected
     }
 
-    // If we've seen more results than the hardcoded total, grow the total to match
+    // If we've seen more results than the expected total, grow to match.
     if completed > totalKnown {
       totalKnown = completed
     }

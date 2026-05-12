@@ -172,10 +172,10 @@ struct WorkerBarsView: View {
             .frame(width: 64, alignment: .leading)
           ProgressView(value: Double(count), total: Double(perWorkerTotal))
             .progressViewStyle(.linear)
-          Text("\(count)")
+          Text("\(count)/\(perWorkerTotal)")
             .font(.footnote)
             .foregroundStyle(.secondary)
-            .frame(width: 32, alignment: .trailing)
+            .frame(width: 52, alignment: .trailing)
         }
       }
     }
