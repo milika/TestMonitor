@@ -29,8 +29,9 @@ final class XCResultWatcher {
   private var activeXCResult: String = ""
   private var knownFiles: Set<String> = []
   private var fileWatchers: [String: LogWatcher] = [:]
-  private var reportedCompleteBundles: Set<String> = []
-
+  private var reportedCompleteBundles: Set<String> = []  /// Auto-incrementing index used as last-resort worker assignment when the
+  /// clone number cannot be extracted from the path or file content.
+  private var nextWorkerIndex: Int = 1
   private var scanTimer: DispatchSourceTimer?
   private var dirSource: DispatchSourceFileSystemObject?
   private let queue = DispatchQueue(label: "com.testmonitor.xcresultwatcher", qos: .utility)
@@ -114,6 +115,7 @@ final class XCResultWatcher {
       fileWatchers.values.forEach { $0.stop() }
       fileWatchers.removeAll()
       knownFiles.removeAll()
+      nextWorkerIndex = 1
       let isSwitch = !activeXCResult.isEmpty   // false on first scan, true on actual switch
       activeXCResult = xcresultPath
       if isSwitch {
@@ -143,7 +145,10 @@ final class XCResultWatcher {
       guard !knownFiles.contains(fullPath) else { continue }
 
       knownFiles.insert(fullPath)
-      let worker = cloneNumber(from: fullPath)
+      let worker = cloneNumberFromPath(fullPath)
+                ?? cloneNumber(from: fullPath)
+                ?? nextWorkerIndex
+      nextWorkerIndex += 1
       let watcher = LogWatcher(path: fullPath) { [weak self, worker] chunk in
         self?.onNewContent(chunk, worker)
       }
@@ -160,16 +165,28 @@ final class XCResultWatcher {
     return Self.xcresultDateFormatter.date(from: String(bundleName[r]))
   }
 
+  /// Try to extract "Clone N of" from the file PATH (directory names in the
+  /// xcresult Staging area include the clone label, e.g.
+  /// "…/Clone 2 of iPhone 17-UUID/…").
+  private func cloneNumberFromPath(_ path: String) -> Int? {
+    guard let regex = try? NSRegularExpression(pattern: #"Clone (\d+) of "#),
+          let match = regex.firstMatch(in: path, range: NSRange(path.startIndex..., in: path)),
+          let range = Range(match.range(at: 1), in: path),
+          let n = Int(String(path[range])), n > 0 else { return nil }
+    return n
+  }
+
   /// Read the first 2 KB of the file to find "Clone N of" in the xcodebuild header.
-  private func cloneNumber(from filePath: String) -> Int {
-    guard let handle = FileHandle(forReadingAtPath: filePath) else { return 0 }
+  private func cloneNumber(from filePath: String) -> Int? {
+    guard let handle = FileHandle(forReadingAtPath: filePath) else { return nil }
     defer { try? handle.close() }
     let data = handle.readData(ofLength: 2048)
-    guard let text = String(data: data, encoding: .utf8) else { return 0 }
+    guard let text = String(data: data, encoding: .utf8) else { return nil }
     guard let regex = try? NSRegularExpression(pattern: #"Clone (\d+) of "#),
           let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-          let range = Range(match.range(at: 1), in: text) else { return 0 }
-    return Int(String(text[range])) ?? 0
+          let range = Range(match.range(at: 1), in: text),
+          let n = Int(String(text[range])), n > 0 else { return nil }
+    return n
   }
 
   deinit { stop() }
