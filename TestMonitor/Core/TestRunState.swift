@@ -128,6 +128,19 @@ final class TestRunState: Identifiable {
     Dictionary(grouping: results, by: \.workerIndex)
   }
 
+  /// True when at least one result carried a real worker index (> 0),
+  /// meaning xcodebuild ran with parallel clones. False for sequential runs.
+  var isParallelRun: Bool {
+    results.contains { $0.workerIndex > 0 }
+  }
+
+  /// Highest worker index seen in results, or `workerCount` (configured cap),
+  /// whichever is greater. Only meaningful when `isParallelRun` is true.
+  var detectedWorkerCount: Int {
+    let maxSeen = results.map(\.workerIndex).max() ?? 0
+    return max(maxSeen, workerCount)
+  }
+
   // MARK: Watching
 
   func startWatching() {

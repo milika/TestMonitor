@@ -52,7 +52,7 @@ struct SuiteProgressView: View {
       headerRow
       timeRow
       overallBar
-      if state.workerCount > 1 {
+      if state.isParallelRun {
         WorkerBarsView(state: state)
       }
       RecentResultsView(results: state.results)
@@ -163,9 +163,9 @@ struct WorkerBarsView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 4) {
-      ForEach(Array(1...state.workerCount), id: \.self) { index in
+      ForEach(Array(1...state.detectedWorkerCount), id: \.self) { index in
         let count = state.perWorkerResults[index]?.count ?? 0
-        let perWorkerTotal = max(state.totalKnown / state.workerCount, 1)
+        let perWorkerTotal = max(state.totalKnown / state.detectedWorkerCount, 1)
         HStack(spacing: 8) {
           Text("Worker \(index)")
             .font(.footnote)

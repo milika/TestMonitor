@@ -15,7 +15,7 @@ struct TestMonitorApp: App {
     ),
     TestRunState(
       suiteName: "SmartTube Unit Tests",
-      totalKnown: 374,
+      totalKnown: 387,
       logPath: "/tmp/smarttube-unit-full.log",
       workerCount: 1
     ),

@@ -194,8 +194,8 @@ final class XCResultWatcher {
       knownFiles.insert(fullPath)
       let worker = cloneNumberFromPath(fullPath)
                 ?? cloneNumber(from: fullPath)
-                ?? nextWorkerIndex
-      nextWorkerIndex += 1
+                ?? 0   // 0 = sequential / undetected; only parallel clones have "Clone N" in path
+      if worker > 0 { nextWorkerIndex = max(nextWorkerIndex, worker + 1) }
       lastWorkerActivityDate = Date()
       let watcher = LogWatcher(path: fullPath) { [weak self, worker] chunk in
         self?.lastWorkerActivityDate = Date()
