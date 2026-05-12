@@ -36,6 +36,10 @@ final class ShellWrapperManager {
 
   : > "$logfile"
   echo "  [TestMonitor] → $logfile" >&2
+
+  # Debug: append the full invoked command so it can be replayed later.
+  printf '%s | %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$REAL_XCODEBUILD" "$*" >> "/tmp/testmonitor-commands.log"
+
   exec "$REAL_XCODEBUILD" "$@" 2>&1 | tee -a "$logfile"
   """
 

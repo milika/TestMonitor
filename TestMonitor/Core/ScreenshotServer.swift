@@ -4,11 +4,13 @@ import Foundation
 import Network
 
 /// Tiny local HTTP server that serves a PNG screenshot, JSON status, and log tails.
+/// Only started in DEBUG builds — see TestMonitorApp.
 /// Endpoints:
-///   GET /ss      → PNG screenshot of the TestMonitor window
-///   GET /status  → JSON state of all test suites
-///   GET /logs    → plain-text tail of each suite's log file (last 200 lines)
-///   GET /debug   → all of the above as a structured plain-text report + base64 screenshot
+///   GET /ss       → PNG screenshot of the TestMonitor window
+///   GET /status   → JSON state of all test suites
+///   GET /logs     → plain-text tail of each suite's log file (last 200 lines)
+///   GET /debug    → all of the above as a structured plain-text report + base64 screenshot
+///   GET /command  → plain-text log of every xcodebuild command captured by the shim
 final class ScreenshotServer {
   private let port: UInt16
   private var listener: NWListener?
@@ -52,10 +54,11 @@ final class ScreenshotServer {
       let path = Self.parsePath(from: data)
       let response: Data
       switch path {
-      case "/status":  response = self.buildStatusResponse()
-      case "/logs":    response = self.buildLogsResponse()
-      case "/debug":   response = self.buildDebugResponse()
-      default:         response = self.buildScreenshotResponse()   // /ss or anything else
+      case "/status":   response = self.buildStatusResponse()
+      case "/logs":     response = self.buildLogsResponse()
+      case "/debug":    response = self.buildDebugResponse()
+      case "/command":  response = self.buildCommandResponse()
+      default:          response = self.buildScreenshotResponse()   // /ss or anything else
       }
       conn.send(content: response, completion: .contentProcessed { _ in conn.cancel() })
     }
@@ -165,6 +168,16 @@ final class ScreenshotServer {
       lines.append("SCREENSHOT: unavailable")
     }
     return textResponse(status: "200 OK", body: lines.joined(separator: "\n"))
+  }
+
+  // MARK: - /command
+
+  private func buildCommandResponse() -> Data {
+    let path = "/tmp/testmonitor-commands.log"
+    guard let content = try? String(contentsOfFile: path, encoding: .utf8), !content.isEmpty else {
+      return textResponse(status: "404 Not Found", body: "No commands logged yet — run a test via the shim first.")
+    }
+    return textResponse(status: "200 OK", body: content)
   }
 
   // MARK: - Helpers

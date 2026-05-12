@@ -2,7 +2,9 @@ import SwiftUI
 
 @main
 struct TestMonitorApp: App {
+#if DEBUG
   private let screenshotServer = ScreenshotServer(port: 7777)
+#endif
   private let shellWrapper = ShellWrapperManager()
 
   @State private var suites: [TestRunState] = [
@@ -26,8 +28,10 @@ struct TestMonitorApp: App {
       ContentView(suites: suites)
         .onAppear {
           suites.forEach { $0.startWatching() }
+#if DEBUG
           screenshotServer.setSuites { [suites] in suites }
           screenshotServer.start()
+#endif
         }
     }
     .windowResizability(.contentSize)
