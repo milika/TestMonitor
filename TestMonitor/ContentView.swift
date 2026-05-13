@@ -143,10 +143,12 @@ struct SuiteProgressView: View {
         .progressViewStyle(.linear)
       HStack {
         Group {
-          if state.totalKnown > 0 {
+          if state.totalIsConfirmed {
             Text("\(state.completed) / \(state.totalKnown)  (\(Int(state.progressFraction * 100))%)")
+          } else if state.completed > 0 {
+            Text("\(state.completed) / ?")
           } else {
-            Text("\(state.completed) tests")
+            Text("waiting…")
           }
         }
         .font(.footnote)
@@ -171,14 +173,15 @@ struct WorkerBarsView: View {
     VStack(alignment: .leading, spacing: 4) {
       ForEach(Array(1...state.detectedWorkerCount), id: \.self) { index in
         let count = state.perWorkerResults[index]?.count ?? 0
-        let perWorkerTotal = max(state.totalKnown / state.detectedWorkerCount, 1)
+        let perWorkerTotal = state.totalIsConfirmed ? max(state.totalKnown / state.detectedWorkerCount, 1) : 0
+        let perWorkerTotalStr = perWorkerTotal > 0 ? "\(perWorkerTotal)" : "?"
         HStack(spacing: 8) {
           Text("Worker \(index)")
             .font(.footnote)
             .frame(width: 64, alignment: .leading)
-          ProgressView(value: Double(count), total: Double(perWorkerTotal))
+          ProgressView(value: Double(count), total: perWorkerTotal > 0 ? Double(perWorkerTotal) : Double(max(count, 1)))
             .progressViewStyle(.linear)
-          Text("\(count)/\(perWorkerTotal)")
+          Text("\(count)/\(perWorkerTotalStr)")
             .font(.footnote)
             .foregroundStyle(.secondary)
             .frame(width: 52, alignment: .trailing)

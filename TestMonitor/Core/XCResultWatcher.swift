@@ -223,7 +223,8 @@ final class XCResultWatcher {
       knownFiles.insert(fullPath)
       let worker = cloneNumberFromPath(fullPath)
                 ?? cloneNumber(from: fullPath)
-                ?? 0   // 0 = sequential / undetected; only parallel clones have "Clone N" in path
+                ?? workerIndexFromSiblings(fullPath)   // new Xcode layout: UUID subdirs
+                ?? 0
       if worker > 0 { nextWorkerIndex = max(nextWorkerIndex, worker + 1) }
       lastWorkerActivityDate = Date()
       let watcher = LogWatcher(path: fullPath) { [weak self, worker] chunk in
@@ -274,6 +275,26 @@ final class XCResultWatcher {
     }
     guard let newest = mtimes.max() else { return 0 }
     return Date().timeIntervalSince(newest)
+  }
+
+  /// Fallback for Xcode 16+ layout where "Clone N of" does NOT appear in the path.
+  /// Staging structure became: …/Diagnostics/<ConfigDir-Iteration-N>/<UUID>/StandardOutputAndStandardError.txt
+  /// Each UUID subdir corresponds to one parallel worker clone.
+  /// If the grandparent directory contains exactly 1 subdir this is a sequential run → returns 0.
+  /// Otherwise assigns indices 1..N sorted by UUID directory name (stable across restarts).
+  private func workerIndexFromSiblings(_ filePath: String) -> Int? {
+    let url = URL(fileURLWithPath: filePath)
+    let workerDir   = url.deletingLastPathComponent()            // UUID dir
+    let iterationDir = workerDir.deletingLastPathComponent()    // Config-Iteration dir
+    guard let siblings = try? FileManager.default.contentsOfDirectory(
+      at: iterationDir,
+      includingPropertiesForKeys: nil,
+      options: .skipsHiddenFiles
+    ) else { return nil }
+    let sorted = siblings.map { $0.lastPathComponent }.sorted()
+    guard sorted.count > 1 else { return nil }  // single child = sequential run
+    guard let idx = sorted.firstIndex(of: workerDir.lastPathComponent) else { return nil }
+    return idx + 1  // 1-based
   }
 
   /// Try to extract "Clone N of" from the file PATH (directory names in the

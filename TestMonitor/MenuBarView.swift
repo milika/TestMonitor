@@ -36,10 +36,12 @@ struct RunningMenuBarLabel: View {
         .scaleEffect(0.7)
         .frame(width: 18, height: 18)
       if let eta = state.eta {
-        Text("\(shortSuiteName): \(state.completed)/\(state.totalKnown) · \(formatETA(eta))")
+        let totalStr = state.totalIsConfirmed ? "/\(state.totalKnown)" : ""
+        Text("\(shortSuiteName): \(state.completed)\(totalStr) · \(formatETA(eta))")
           .font(.system(size: 13))
       } else {
-        Text("\(shortSuiteName): \(state.completed)/\(state.totalKnown)")
+        let totalStr = state.totalIsConfirmed ? "/\(state.totalKnown)" : ""
+        Text("\(shortSuiteName): \(state.completed)\(totalStr)")
           .font(.system(size: 13))
       }
     }

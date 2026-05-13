@@ -29,6 +29,10 @@ final class TestRunState: Identifiable {
   /// xcodebuild scheme name — used for DerivedData auto-discovery and shim routing.
   let schemeName: String?
   var totalKnown: Int
+  /// True once `totalKnown` has been set from data belonging to the *current* run
+  /// (xcresulttool, "Executed N tests" line, or Swift Testing count).
+  /// False at startup and after each reset — only the persisted hint is loaded then.
+  var totalIsConfirmed: Bool = false
   let logPath: String
   let workerCount: Int
   /// Discovered path to DerivedData `Logs/Test/` for XCTest-based UI tests.
@@ -54,6 +58,21 @@ final class TestRunState: Identifiable {
 
   private static let dismissedDefaultsKey = "com.testmonitor.dismissedLogPaths"
   private static let dismissalDatesKey    = "com.testmonitor.dismissalDates"
+  private static let savedTotalsKey       = "com.testmonitor.savedTotals"
+
+  private static func savedTotals() -> [String: Int] {
+    UserDefaults.standard.dictionary(forKey: savedTotalsKey) as? [String: Int] ?? [:]
+  }
+
+  private static func saveTotal(_ total: Int, forLogPath path: String) {
+    var totals = savedTotals()
+    totals[path] = total
+    UserDefaults.standard.set(totals, forKey: savedTotalsKey)
+  }
+
+  private static func loadTotal(forLogPath path: String) -> Int {
+    savedTotals()[path] ?? 0
+  }
 
   private static func dismissedPaths() -> Set<String> {
     let arr = UserDefaults.standard.stringArray(forKey: dismissedDefaultsKey) ?? []
@@ -81,7 +100,8 @@ final class TestRunState: Identifiable {
   init(suiteName: String, logPath: String, workerCount: Int = 1, schemeName: String? = nil) {
     self.suiteName = suiteName
     self.schemeName = schemeName
-    self.totalKnown = 0
+    self.totalKnown = Self.loadTotal(forLogPath: logPath)  // restored from last run
+    // totalIsConfirmed starts false — hint only, not confirmed for current run
     self.logPath = logPath
     self.workerCount = workerCount
     self.xcresultLogsDir = nil  // discovered lazily in startWatching()
@@ -113,12 +133,12 @@ final class TestRunState: Identifiable {
   var completed: Int { results.count }
 
   var progressFraction: Double {
-    guard totalKnown > 0 else { return 0 }
+    guard totalIsConfirmed, totalKnown > 0 else { return 0 }
     return min(1.0, Double(completed) / Double(totalKnown))
   }
 
   var eta: TimeInterval? {
-    guard let start = startTime, completed >= 5, totalKnown > completed else { return nil }
+    guard totalIsConfirmed, let start = startTime, completed >= 5, totalKnown > completed else { return nil }
     let elapsed = Date().timeIntervalSince(start)
     guard elapsed > 0 else { return nil }
     let rate = Double(completed) / elapsed
@@ -194,7 +214,8 @@ final class TestRunState: Identifiable {
     isDismissed = false   // new run → clear persisted dismissal
     xcresultPath = nil
     parser = TestResultParser()
-    totalKnown = 0
+    totalKnown = Self.loadTotal(forLogPath: logPath)  // keep last known total as hint
+    totalIsConfirmed = false
   }
 
   /// Full reset: clears state AND recreates the xcresult watcher.
@@ -264,6 +285,8 @@ final class TestRunState: Identifiable {
           }
           self.results = merged
           self.totalKnown = parsed.totalCount
+          self.totalIsConfirmed = true
+          Self.saveTotal(parsed.totalCount, forLogPath: self.logPath)
           self.verdict = parsed.verdict
           self.isRunning = false
           if self.xcresultPath == nil { self.xcresultPath = path }
@@ -297,6 +320,7 @@ final class TestRunState: Identifiable {
       let parts = line.trimmingCharacters(in: .whitespaces).components(separatedBy: " ")
       if parts.first == "Executed", let n = Int(parts[1]), n > totalKnown {
         totalKnown = n
+        totalIsConfirmed = true
       }
     }
   }
@@ -328,6 +352,7 @@ final class TestRunState: Identifiable {
     // Only grow — never shrink (detectedTotal can be a partial-suite sub-count).
     if let detected = parser.detectedTotal, detected > totalKnown {
       totalKnown = detected
+      totalIsConfirmed = true
     }
 
     // If we've seen more results than the expected total, grow to match.

@@ -105,37 +105,35 @@ final class ShellWrapperManager {
     defaultLogPath: String,
     commandLogPath: String
   ) -> String {
-    // Build routing: start from the default, then override per named scheme.
-    let overrides = routes
-      .map { r in "  [[ \"$*\" == *\"-scheme \(r.schemeName)\"* ]] && logfile=\"\(r.logPath)\"" }
-      .joined(separator: "\n")
-    let routingBlock = overrides.isEmpty
-      ? "  logfile=\"\(defaultLogPath)\""
-      : "  logfile=\"\(defaultLogPath)\"\n\(overrides)"
-    return """
-    #!/bin/bash
-    # TestMonitor xcodebuild shim
-    # Transparently tees `xcodebuild test` output to the log files TestMonitor watches.
-    # Remove by choosing \"Remove Shell Wrapper\" from the TestMonitor menu bar.
-
-    REAL_XCODEBUILD=\"$(xcrun --find xcodebuild 2>/dev/null || echo /usr/bin/xcodebuild)\"
-
-    # Pass non-test invocations straight through.
-    if [[ \" $* \" != *\" test \"* ]]; then
-      exec \"$REAL_XCODEBUILD\" \"$@\"
-    fi
-
-    # Route to the appropriate log based on -scheme argument.
-    \(routingBlock)
-
-    : > \"$logfile\"
-    echo \"  [TestMonitor] \u2192 $logfile\" >&2
-
-    # Append the full invoked command for replay / debugging.
-    printf '%s | %s %s\\n' \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\" \"$REAL_XCODEBUILD\" \"$*\" >> \"\(commandLogPath)\"
-
-    exec \"$REAL_XCODEBUILD\" \"$@\" 2>&1 | tee -a \"$logfile\"
-    \"\"\"
+    // Build the routing block: start with default, then one override per named scheme.
+    var routing = "  logfile=\"\(defaultLogPath)\""
+    for r in routes {
+      routing += "\n  [[ \"$*\" == *\"-scheme \(r.schemeName)\"* ]] && logfile=\"\(r.logPath)\""
+    }
+    var lines: [String] = []
+    lines.append("#!/bin/bash")
+    lines.append("# TestMonitor xcodebuild shim")
+    lines.append("# Transparently tees `xcodebuild test` output to the log files TestMonitor watches.")
+    lines.append("# Remove by choosing \"Remove Shell Wrapper\" from the TestMonitor menu bar.")
+    lines.append("")
+    lines.append("REAL_XCODEBUILD=\"$(xcrun --find xcodebuild 2>/dev/null || echo /usr/bin/xcodebuild)\"")
+    lines.append("")
+    lines.append("# Pass non-test invocations straight through.")
+    lines.append("if [[ \" $* \" != *\" test \"* ]]; then")
+    lines.append("  exec \"$REAL_XCODEBUILD\" \"$@\"")
+    lines.append("fi")
+    lines.append("")
+    lines.append("# Route to the appropriate log based on -scheme argument.")
+    lines.append(routing)
+    lines.append("")
+    lines.append(": > \"$logfile\"")
+    lines.append("echo \"  [TestMonitor] -> $logfile\" >&2")
+    lines.append("")
+    lines.append("# Append the full invoked command for replay / debugging.")
+    lines.append("printf '%s | %s %s\\n' \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\" \"$REAL_XCODEBUILD\" \"$*\" >> \"\(commandLogPath)\"")
+    lines.append("")
+    lines.append("exec \"$REAL_XCODEBUILD\" \"$@\" 2>&1 | tee -a \"$logfile\"")
+    return lines.joined(separator: "\n")
   }
 
   // MARK: - Migration: clean up the old ~/.zshrc function if present
