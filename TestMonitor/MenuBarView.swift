@@ -8,22 +8,25 @@ struct MenuBarLabel: View {
   private var visible: [TestRunState] { suites.filter { !$0.isDismissed } }
 
   var body: some View {
-    if let active = visible.first(where: \.isRunning) {
-      RunningMenuBarLabel(state: active)
-    } else if let failed = visible.first(where: { $0.verdict == .failed }) {
-      let _ = failed  // suppress unused warning
-      Image(systemName: "xmark.circle.fill")
-        .font(.system(size: 16))
-        .foregroundStyle(Color.red)
-    } else if visible.contains(where: { $0.verdict == .succeeded }) {
-      Image(systemName: "checkmark.circle.fill")
-        .font(.system(size: 16))
-        .foregroundStyle(Color.green)
-    } else {
-      Image(systemName: "checkmark.circle.fill")
-        .font(.system(size: 16))
-        .foregroundStyle(Color.secondary)
+    Group {
+      if let active = visible.first(where: \.isRunning) {
+        RunningMenuBarLabel(state: active)
+      } else if let failed = visible.first(where: { $0.verdict == .failed }) {
+        let _ = failed  // suppress unused warning
+        Image(systemName: "xmark.circle.fill")
+          .font(.system(size: 16))
+          .foregroundStyle(Color.red)
+      } else if visible.contains(where: { $0.verdict == .succeeded }) {
+        Image(systemName: "checkmark.circle.fill")
+          .font(.system(size: 16))
+          .foregroundStyle(Color.green)
+      } else {
+        Image(systemName: "checkmark.circle.fill")
+          .font(.system(size: 16))
+          .foregroundStyle(Color.secondary)
+      }
     }
+    .accessibilityLabel("TestMonitor")
   }
 }
 
@@ -106,6 +109,15 @@ struct MenuBarView: View {
     }
     .padding(16)
     .frame(width: 360)
+    // Reopen a fully-closed main window when AppDelegate can't find it.
+    .onReceive(NotificationCenter.default.publisher(for: .openMainWindow)) { _ in
+      if let existing = NSApp.windows.first(where: { $0.styleMask.contains(.titled) && !($0 is NSPanel) }) {
+        existing.makeKeyAndOrderFront(nil)
+      } else {
+        openWindow(id: "main")
+      }
+      NSApp.activate(ignoringOtherApps: true)
+    }
   }
 }
 

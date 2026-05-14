@@ -5,7 +5,16 @@ import SwiftUI
 struct ContentView: View {
   var suites: [TestRunState]
 
+  @State private var logHeights: [UUID: CGFloat] = [:]
+
   private var visible: [TestRunState] { suites.filter { !$0.isDismissed } }
+
+  private func logHeightBinding(for state: TestRunState) -> Binding<CGFloat> {
+    Binding(
+      get: { self.logHeights[state.id] ?? 120 },
+      set: { self.logHeights[state.id] = $0 }
+    )
+  }
 
   var body: some View {
     Group {
@@ -13,15 +22,15 @@ struct ContentView: View {
         emptyState
       } else {
         ScrollView {
-          VStack(alignment: .leading, spacing: 24) {
+          VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(visible.enumerated()), id: \.element.id) { idx, state in
-              SuiteProgressView(state: state)
+              SuiteProgressView(state: state, logHeight: logHeightBinding(for: state).wrappedValue)
+                .padding(20)
               if idx < visible.count - 1 {
-                Divider()
+                DragHandleDivider(height: logHeightBinding(for: state))
               }
             }
           }
-          .padding(20)
         }
       }
     }
@@ -46,6 +55,7 @@ struct ContentView: View {
 
 struct SuiteProgressView: View {
   var state: TestRunState
+  var logHeight: CGFloat = 120
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -55,7 +65,7 @@ struct SuiteProgressView: View {
       if state.isParallelRun {
         WorkerBarsView(state: state)
       }
-      RecentResultsView(results: state.results)
+      RecentResultsView(results: state.results, logHeight: logHeight)
     }
   }
 
@@ -195,6 +205,7 @@ struct WorkerBarsView: View {
 
 struct RecentResultsView: View {
   let results: [TestResult]
+  var logHeight: CGFloat = 120
 
   private var recent: [TestResult] {
     Array(results.suffix(20))
@@ -228,7 +239,7 @@ struct RecentResultsView: View {
               }
             }
           }
-          .frame(maxHeight: 180)
+          .frame(height: max(60, logHeight))
           .onChange(of: recent.last?.id) { _, newID in
             if let id = newID {
               withAnimation { proxy.scrollTo(id, anchor: .bottom) }
@@ -242,6 +253,43 @@ struct RecentResultsView: View {
         }
       }
     }
+  }
+}
+
+// MARK: - Drag Handle Divider
+
+struct DragHandleDivider: View {
+  @Binding var height: CGFloat
+  @State private var isDragging = false
+  @State private var dragStartHeight: CGFloat = 0
+
+  var body: some View {
+    ZStack {
+      Rectangle()
+        .fill(isDragging ? Color.accentColor.opacity(0.15) : Color.clear)
+        .frame(height: 12)
+        .contentShape(Rectangle())
+      Divider()
+      Capsule()
+        .fill(isDragging ? Color.accentColor.opacity(0.7) : Color.primary.opacity(0.2))
+        .frame(width: 36, height: 4)
+    }
+    .gesture(
+      DragGesture(minimumDistance: 2)
+        .onChanged { value in
+          if !isDragging {
+            isDragging = true
+            dragStartHeight = height
+          }
+          // Dragging up (negative y) grows the pane above, down shrinks it
+          height = max(60, dragStartHeight - value.translation.height)
+        }
+        .onEnded { _ in isDragging = false }
+    )
+    .onHover { hovering in
+      if hovering { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
+    }
+    .animation(.easeInOut(duration: 0.1), value: isDragging)
   }
 }
 

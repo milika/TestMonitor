@@ -1,38 +1,72 @@
 import SwiftUI
 
+// MARK: - Notification name
+
+extension NSNotification.Name {
+  static let openMainWindow = NSNotification.Name("com.testmonitor.openMainWindow")
+}
+
 // MARK: - App Delegate
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-  private var eventMonitor: Any?
+  private var localMonitor: Any?
+  private var globalMonitor: Any?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
-    // Open main window on double-click on the menu bar icon.
-    // A local monitor sees events in our own windows, which includes the
-    // invisible MenuBarExtra host window that sits in the menu bar.
-    eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
-      if event.clickCount == 2 {
-        let screenHeight = NSScreen.main?.frame.height ?? 0
-        let clickY = event.window?.frame.origin.y ?? 0
-        // Menu bar sits in the top ~30 pt of the screen.
-        if clickY >= screenHeight - 30 {
+    // When launched by the XCUITest runner, LSUIElement (no Dock icon) prevents
+    // the test framework from activating the app. Switch to regular policy so
+    // XCUITest can bring the app to front and interact with it normally.
+    if ProcessInfo.processInfo.environment["XCTestBundlePath"] != nil {
+      NSApp.setActivationPolicy(.regular)
+    }
+
+    // Open the main window on double-click in the MenuBarExtra popup.
+    // the receiving window (a) has no title bar and (b) its top edge sits within
+    // ~40 pt of the screen top (i.e. just below the system menu bar).
+    // A raw cursor-Y check (the previous approach) was too brittle because the
+    // header area can be 24-35 pt below the screen top on different hardware.
+    localMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
+      if event.clickCount == 2, let window = event.window {
+        let screenH = NSScreen.main?.frame.height ?? 0
+        let isMenuBarPopup = !window.styleMask.contains(.titled)
+                          && window.frame.maxY >= screenH - 40
+        if isMenuBarPopup {
           AppDelegate.openMainWindow()
         }
       }
       return event
     }
+    // Belt-and-suspenders: global monitor for clicks that occur in the system
+    // status-bar area outside any app window (popup already dismissed).
+    globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { event in
+      if event.clickCount == 2 {
+        let screenH = NSScreen.main?.frame.height ?? 0
+        if NSEvent.mouseLocation.y >= screenH - 30 {
+          DispatchQueue.main.async { AppDelegate.openMainWindow() }
+        }
+      }
+    }
   }
 
   func applicationWillTerminate(_ notification: Notification) {
-    if let m = eventMonitor { NSEvent.removeMonitor(m) }
+    if let m = localMonitor  { NSEvent.removeMonitor(m) }
+    if let m = globalMonitor { NSEvent.removeMonitor(m) }
   }
 
+  /// Bring the main window forward, or reopen it if it was closed.
+  /// When the window is gone, a notification is posted; MenuBarView
+  /// (which always lives as long as the MenuBarExtra is visible) catches
+  /// it and calls openWindow(id: "main").
   static func openMainWindow() {
     if let existing = NSApp.windows.first(where: {
       $0.styleMask.contains(.titled) && !($0 is NSPanel)
     }) {
       existing.makeKeyAndOrderFront(nil)
+      NSApp.activate(ignoringOtherApps: true)
+    } else {
+      // Window was fully closed — signal MenuBarView to recreate it.
+      NotificationCenter.default.post(name: .openMainWindow, object: nil)
     }
-    NSApp.activate(ignoringOtherApps: true)
   }
 }
 

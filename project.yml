@@ -8,6 +8,27 @@ options:
   generateEmptyDirectories: true
   createIntermediateGroups: true
 
+schemes:
+  TestMonitor:
+    build:
+      targets:
+        TestMonitor: all
+        TestMonitorTests: [test]
+        TestMonitorUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - TestMonitorTests
+        - TestMonitorUITests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+
 targets:
   TestMonitor:
     type: application
@@ -43,3 +64,19 @@ targets:
         SWIFT_VERSION: "5.9"
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         GENERATE_INFOPLIST_FILE: YES
+
+  TestMonitorUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: TestMonitorUITests
+    dependencies:
+      - target: TestMonitor
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.testmonitor.TestMonitorUITests
+        SWIFT_VERSION: "5.9"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: TestMonitor
